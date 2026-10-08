@@ -50,7 +50,7 @@ const RENDER_DELAY = 0; // frames are already scheduled at their own tick time
 // ------------------------------------------------------------------ setup
 
 // The engine runs in a Web Worker (Pyodide + RoyaleSim in WebAssembly + the bot in onnxruntime-web).
-const worker = new Worker("engine-worker.js?v=202610082248");
+const worker = new Worker("engine-worker.js?v=202610082253");
 let clock = null;      // {t0, firstTick, tickMs}: when each tick is due on this page's clock
 const queue = [];      // events waiting for their tick to be shown: {due, kind, data}
 let replayBytes = null;
@@ -73,6 +73,7 @@ async function init() {
   connect();
   worker.postMessage({ type: "boot" });
   window.addEventListener("resize", resize);
+  if (window.visualViewport) window.visualViewport.addEventListener("resize", resize);
   resize();
   requestAnimationFrame(draw);
 }
@@ -191,10 +192,11 @@ function resize() {
   // Fit the arena in the space the bars and the hand leave, measured (phones differ a lot).
   const h = (id, d) => ($(id) && $(id).offsetHeight) || d;
   const botHand = state.debug ? h("bot-hand", 44) : 0;
-  const availH = window.innerHeight - h("topbar", 44) - h("hud", 96) - h("elixir-wrap", 34) - botHand - 34;
+  const viewH = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+  const availH = viewH - h("topbar", 44) - h("hud", 96) - h("elixir-wrap", 34) - botHand - 34;
   const availW = Math.min(window.innerWidth - 12, 560);
   // The 2.5D view sees the 32 rows tilted: about 26.4 tiles of height are enough (no empty band).
-  const rows = r3d && r3d.ready ? R3D_ROWS : 32;
+  const rows = use3d() ? R3D_ROWS : 32;
   T = Math.max(10, Math.floor(Math.min(availH / rows, availW / 18) * 10) / 10);
   const dpr = window.devicePixelRatio || 1;
   canvas.width = 18 * T * dpr; canvas.height = 32 * T * dpr;
@@ -208,6 +210,7 @@ function resize() {
 
 // ------------------------------------------------------------------ 2.5D renderer (render3d.js)
 let r3d = null;
+const use3d = () => !!(r3d && r3d.ready && !r3d.lost);
 const R3D_ROWS = 29.0;
 async function boot3d() {
   if (!window.Renderer3D) await new Promise((res) => {
@@ -224,6 +227,9 @@ async function boot3d() {
     await r.init(c3, META, (k) => { $("load-fill").style.width = Math.round(90 + 10 * k) + "%"; });
     r3d = r;
     window.__r3d = r; // for debugging and perf measurement
+    // If the browser takes the 3D context away (iOS keeps very few), play on in 2D until it comes back.
+    r.onLost = () => { canvas.classList.remove("hidden"); c3.classList.add("hidden"); resize(); toast("Grafica 3D sospesa dal browser: continuo in 2D", true); };
+    r.onRestored = () => { canvas.classList.add("hidden"); c3.classList.remove("hidden"); resize(); };
     canvas.classList.add("hidden");
     resize();
     try {
@@ -395,7 +401,7 @@ function select(slot) {
 }
 
 function tileAt(ev) {
-  if (r3d && r3d.ready) return r3d.pick(ev.clientX, ev.clientY);
+  if (use3d()) return r3d.pick(ev.clientX, ev.clientY);
   const r = canvas.getBoundingClientRect();
   const mx = ev.clientX - r.left, my = ev.clientY - r.top;
   if (mx < 0 || my < 0 || mx >= 18 * T || my >= 32 * T) return null;
@@ -687,7 +693,7 @@ function draw() {
   requestAnimationFrame(draw);
   if (!META || $("game").classList.contains("hidden")) return;
   pump();
-  if (r3d && r3d.ready) {
+  if (use3d()) {
     r3d.render(interpolated(), { selected: state.selected, mask: state.mask, maskVersion: state.maskVersion,
       hover: state.hover, hand: state.last ? state.last.hand : [], inGame: state.inGame });
     return;

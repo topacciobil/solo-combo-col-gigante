@@ -5,7 +5,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
-import { CARD_LOOK, SPELL_LOOK, WEAPON_MESHES, buildProc, clipsFor, displayName, lookFor, modelFilesFor, PROC, toon as toonMat } from "./cards3d.js?v=202610082248";
+import { CARD_LOOK, SPELL_LOOK, WEAPON_MESHES, buildProc, clipsFor, displayName, lookFor, modelFilesFor, PROC, toon as toonMat } from "./cards3d.js?v=202610082253";
 window.cardDisplayName = displayName;
 
 const E = { UID: 0, TEAM: 1, KIND: 2, CARD: 3, SLOT: 4, X: 5, Y: 6, HP: 7, MAXHP: 8, R: 9, FLY: 10, DEPLOY: 11,
@@ -47,6 +47,9 @@ class Renderer3D {
     r.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
     r.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer = r;
+    this.lost = false;
+    canvas.addEventListener("webglcontextlost", (ev) => { ev.preventDefault(); this.lost = true; this.onLost && this.onLost(); });
+    canvas.addEventListener("webglcontextrestored", () => { this.lost = false; this.onRestored && this.onRestored(); });
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color("#2f5a2a");
     this.camera = new THREE.OrthographicCamera(-10, 10, 18, -18, 0.1, 200);
@@ -254,12 +257,20 @@ class Renderer3D {
 
   // ------------------------------------------------------------------ card portraits
   // Each card's own model, rendered once into a small image for the hand (no game art involved).
+  // Rendered with the arena's own renderer into an off-screen target: a second WebGL context per call made
+  // iOS Safari (which keeps very few contexts) throw away the arena's, leaving the battle black.
   portraits(cardNames) {
     const W = 160, H = 200;
-    const canvas = document.createElement("canvas");
-    const r = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
-    r.setSize(W, H, false);
-    r.outputColorSpace = THREE.SRGBColorSpace;
+    const r = this.renderer;
+    if (!this._rt) {
+      this._rt = new THREE.WebGLRenderTarget(W, H, { samples: 4 });
+      this._rt.texture.colorSpace = THREE.SRGBColorSpace;
+      this._px = new Uint8Array(W * H * 4);
+      this._pc = document.createElement("canvas"); this._pc.width = W; this._pc.height = H;
+    }
+    const ctx2 = this._pc.getContext("2d");
+    const img = ctx2.createImageData(W, H);
+    const prevAlpha = r.getClearAlpha();
     const out = {};
     for (const name of cardNames) {
       const scene = new THREE.Scene();
@@ -285,10 +296,17 @@ class Renderer3D {
       const dist = Math.max(size.y, size.x * H / W, 0.4) / (2 * Math.tan(THREE.MathUtils.degToRad(15))) * 1.15;
       cam.position.set(c.x, c.y + size.y * 0.15, c.z + dist);
       cam.lookAt(c);
+      r.setRenderTarget(this._rt);
+      r.setClearAlpha(0);
+      r.clear();
       r.render(scene, cam);
-      out[name] = canvas.toDataURL("image/png");
+      r.readRenderTargetPixels(this._rt, 0, 0, W, H, this._px);
+      for (let y = 0; y < H; y++) img.data.set(this._px.subarray((H - 1 - y) * W * 4, (H - y) * W * 4), y * W * 4); // flip
+      ctx2.putImageData(img, 0, 0);
+      out[name] = this._pc.toDataURL("image/png");
     }
-    r.dispose();
+    r.setRenderTarget(null);
+    r.setClearAlpha(prevAlpha);
     return out;
   }
 
