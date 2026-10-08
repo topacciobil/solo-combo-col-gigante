@@ -12,6 +12,7 @@ const KIND = { TROOP: 0, BUILDING: 1, KING: 2, PRINCESS: 3 };
 const TEAM = [new THREE.Color("#3d8bff"), new THREE.Color("#ff4d5e")];
 const TEAM_BAR = [new THREE.Color("#4fa3ff"), new THREE.Color("#ff5a6a")];
 const HP_LOW = new THREE.Color("#ffb020"), HP_CRIT = new THREE.Color("#ff3030");
+const GHOST_OK = new THREE.Color("#d8ecff"), GHOST_BAD = new THREE.Color("#ff6070");
 const ELEV = THREE.MathUtils.degToRad(52); // camera elevation above the ground plane
 const FLY_H = 1.8;
 const sfx = (n, gap) => window.SFX && window.SFX.play(n, gap);
@@ -273,6 +274,7 @@ class Renderer3D {
     const show = slot >= 0 && ui.mask && ui.inGame;
     this.tileMesh.visible = !!show;
     this.ghost.visible = false;
+    if (this.activeGhost) this.activeGhost.visible = false;
     if (!show) return;
     const key = slot + ":" + ui.maskVersion;
     if (key !== this.lastMaskKey) {
@@ -287,11 +289,55 @@ class Renderer3D {
     const spell = card.placement === 2 || card.placement === 3 || card.placement === 4;
     const r = spell ? ({ Fireball: 2.5, Log: 1.95 }[card.name] || 2.5) : Math.max(0.6, (card.radius || 0.5) * 1.6);
     const ok = ui.mask[slot * 576 + h.ty * 18 + h.tx] === 1;
+    // the unit itself, translucent, floating over the tile (troops and buildings)
+    const gm = spell ? null : this.ghostModel(card.name);
+    if (this.activeGhost && this.activeGhost !== gm) this.activeGhost.visible = false;
+    this.activeGhost = gm;
+    if (gm) {
+      gm.visible = true;
+      const t = performance.now() / 1000;
+      gm.position.set(wx(h.tx + 0.5), 0.25 + Math.sin(t * 5) * 0.12, wz(h.ty + 0.5));
+      gm.traverse((o) => { if (o.isMesh && o.material && o.material.color && !o.userData.ring) o.material.color.copy(ok ? GHOST_OK : GHOST_BAD); });
+    }
     this.ghost.visible = true;
     this.ghost.position.set(wx(h.tx + 0.5), 0.06, wz(h.ty + 0.5));
     this.ghost.scale.setScalar(r);
     this.ghostRing.material.color.set(ok ? "#ffffff" : "#ff3344");
     this.ghostDisc.material.color.set(ok ? "#ffffff" : "#ff3344");
+  }
+
+  // A translucent copy of a card's unit, built once per card.
+  ghostModel(name) {
+    this.ghosts = this.ghosts || {};
+    if (name in this.ghosts) return this.ghosts[name];
+    let root = null;
+    const spec = MODELS[name];
+    if (spec) {
+      const ch = this.character(spec.file, 0);
+      this.fitHeight(ch.root, spec.h);
+      const idle = ch.actions[spec.clips.idle];
+      if (idle) { idle.play(); ch.mixer.update(0.2); }
+      root = new THREE.Group();
+      if (spec.rider) { const pig = makePig(0); pig.scale.setScalar(1.35); root.add(pig); ch.root.position.y = 0.68; }
+      root.add(ch.root);
+    } else if (PROCEDURAL[name]) {
+      root = new THREE.Group();
+      const p = PROCEDURAL[name](0, 0.5);
+      p.root.scale.setScalar(1.3);
+      root.add(p.root);
+    }
+    if (root) {
+      root.rotation.y = Math.PI; // facing the enemy
+      root.traverse((o) => {
+        if (!o.isMesh) return;
+        o.material = new THREE.MeshLambertMaterial({ color: GHOST_OK, emissive: "#3a5f8a", transparent: true, opacity: 0.72, depthWrite: false });
+        o.frustumCulled = false;
+      });
+      root.visible = false;
+      this.scene.add(root);
+    }
+    this.ghosts[name] = root;
+    return root;
   }
 
   pick(clientX, clientY) {

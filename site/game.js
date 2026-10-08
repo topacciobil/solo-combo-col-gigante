@@ -50,7 +50,7 @@ const RENDER_DELAY = 0; // frames are already scheduled at their own tick time
 // ------------------------------------------------------------------ setup
 
 // The engine runs in a Web Worker (Pyodide + RoyaleSim in WebAssembly + the bot in onnxruntime-web).
-const worker = new Worker("engine-worker.js?v=202610082223");
+const worker = new Worker("engine-worker.js?v=202610082230");
 let clock = null;      // {t0, firstTick, tickMs}: when each tick is due on this page's clock
 const queue = [];      // events waiting for their tick to be shown: {due, kind, data}
 let replayBytes = null;
@@ -317,7 +317,8 @@ function renderHand() {
     if (f.elixir[0] < c.elixir) el.classList.add("poor");
     if (state.selected === slot) el.classList.add("selected");
     if (state.pending && state.pending.slot === slot) el.classList.add("pending");
-    el.addEventListener("pointerdown", (ev) => { ev.preventDefault(); select(slot); state.dragging = true; });
+    if (drag && drag.slot === slot && drag.proxy) el.classList.add("lifted");
+    el.addEventListener("pointerdown", (ev) => { ev.preventDefault(); startDrag(ev, slot, el); });
     hand.appendChild(el);
   });
   const nc = cardInfo(f.next);
@@ -399,21 +400,81 @@ async function playAt(tile) {
   if (!legal(slot, tile.tx, tile.ty)) {
     const c = cardInfo(card);
     toast(f.elixir[0] < c.elixir ? `Elisir insufficiente (${c.elixir})` : "Posizione non valida", true);
-    return;
+    return false;
   }
   state.pending = { slot, card };
   renderHand();
   worker.postMessage({ type: "action", action: 1 + slot * 576 + tile.ty * 18 + tile.tx });
+  return true;
 }
 
-document.addEventListener("pointermove", (ev) => { state.hover = tileAt(ev); });
-document.addEventListener("pointerup", (ev) => {
-  if (state.dragging) {
-    state.dragging = false;
-    const t = tileAt(ev);
-    if (t) playAt(t);
+// ------------------------------------------------------------------ drag a card
+// Press a card and move: a copy lifts off the hand and follows the pointer; over the arena it shrinks
+// away and the 3D ghost of the unit takes its place on the tile; released on a legal tile it drops in,
+// anywhere else it flies back to its slot. A press without moving is the old tap-to-select.
+let drag = null; // {slot, x0, y0, el, proxy}
+
+function startDrag(ev, slot, el) {
+  // Measure first: select() re-renders the hand and detaches this element (the hand is also
+  // re-rendered on every elixir change), so keep the card's size and place from this moment.
+  const home = el.getBoundingClientRect();
+  const copy = el.cloneNode(true);
+  select(slot);
+  state.dragging = true;
+  drag = { slot, x0: ev.clientX, y0: ev.clientY, el: copy, home, proxy: null };
+}
+
+function liftProxy() {
+  const r = drag.home;
+  const p = drag.el.cloneNode(true);
+  p.id = "drag-card";
+  p.classList.remove("selected", "lifted", "pending");
+  p.style.width = r.width + "px";
+  p.style.height = r.height + "px";
+  document.body.appendChild(p);
+  drag.proxy = p;
+  state.selected = drag.slot; // a press on the selected card toggled it off: dragging keeps it
+  renderHand();
+}
+
+function moveProxy(ev) {
+  const p = drag.proxy;
+  p.style.left = ev.clientX + "px";
+  p.style.top = ev.clientY + "px";
+  const over = !!state.hover;
+  p.classList.toggle("over", over);
+  p.classList.toggle("bad", over && !legal(drag.slot, state.hover.tx, state.hover.ty));
+}
+
+function endDrag(ev) {
+  const d = drag;
+  drag = null;
+  state.dragging = false;
+  if (!d || !d.proxy) return; // a tap: selection only
+  const p = d.proxy;
+  const t = tileAt(ev);
+  const ok = t && playAt(t);
+  if (ok) {
+    p.classList.add("drop");
+    state.selected = -1;
+  } else {
+    // fly back to the slot
+    p.classList.remove("over", "bad");
+    p.classList.add("back");
+    p.style.left = d.home.left + d.home.width / 2 + "px";
+    p.style.top = d.home.top + d.home.height / 2 + "px";
   }
+  setTimeout(() => { p.remove(); renderHand(); }, 260);
+}
+
+document.addEventListener("pointermove", (ev) => {
+  state.hover = tileAt(ev);
+  if (!drag) return;
+  if (!drag.proxy && Math.hypot(ev.clientX - drag.x0, ev.clientY - drag.y0) > 8) liftProxy();
+  if (drag.proxy) moveProxy(ev);
 });
+document.addEventListener("pointerup", endDrag);
+document.addEventListener("pointercancel", endDrag);
 for (const el of [canvas, $("arena3d")]) {
   el.addEventListener("pointerdown", (ev) => { if (ev.button === 0) playAt(tileAt(ev)); });
   el.addEventListener("contextmenu", (ev) => { ev.preventDefault(); state.selected = -1; renderHand(); });

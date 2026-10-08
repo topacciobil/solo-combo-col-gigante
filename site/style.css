@@ -132,3 +132,14 @@ body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-are
   #elixir-drop { width: 28px; height: 28px; font-size: 14px; }
 }
 @media (max-width: 480px) { .toast { font-size: 11px; padding: 3px 8px; opacity: .85; } }
+
+/* dragging a card */
+.card.lifted { opacity: .25; transform: scale(.92); }
+#drag-card { position: fixed; z-index: 50; pointer-events: none; margin: 0; flex: none;
+  transform: translate(-50%, -70%) rotate(-7deg) scale(1.12); box-shadow: 0 14px 30px #000a;
+  transition: transform .14s ease-out, opacity .14s ease-out, left .22s ease-out, top .22s ease-out; }
+#drag-card:not(.back) { transition: transform .14s ease-out, opacity .14s ease-out; }
+#drag-card.over { transform: translate(-50%, -50%) scale(.38); opacity: .35; }
+#drag-card.over.bad { filter: grayscale(.6) brightness(.8) drop-shadow(0 0 6px #ff3344); }
+#drag-card.drop { transform: translate(-50%, -50%) scale(.05); opacity: 0; transition: transform .2s ease-in, opacity .2s ease-in; }
+#drag-card.back { transform: translate(-50%, -50%) rotate(0) scale(1); opacity: .9; }
