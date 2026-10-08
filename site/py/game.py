@@ -7,10 +7,28 @@ arrays bot_inputs() returns.
 """
 import base64
 import json
+import sys
+import types
 
-import numpy as np
-from royalegym import CombinedReward, CrownReward, TowerHPReward, WinLossReward, make_env
-from royalegym.replay import ReplayRecorder
+# Pyodide has no _multiprocessing (no processes in a browser). gymnasium imports it at import time
+# for AsyncVectorEnv, which nothing here uses: a stand-in lets the import through.
+if sys.platform == "emscripten" and "_multiprocessing" not in sys.modules:
+    _mp = types.ModuleType("_multiprocessing")
+
+    class _SemLock:
+        SEM_VALUE_MAX = 2**31 - 1
+
+        def __init__(self, *a, **k):
+            raise OSError("no multiprocessing in the browser")
+
+    _mp.SemLock = _SemLock
+    _mp.sem_unlink = lambda *a: None
+    _mp.flags = {}
+    sys.modules["_multiprocessing"] = _mp
+
+import numpy as np  # noqa: E402
+from royalegym import CombinedReward, CrownReward, TowerHPReward, WinLossReward, make_env  # noqa: E402
+from royalegym.replay import ReplayRecorder  # noqa: E402
 
 # The deck and reward of the project's common.build_env (the reward does not change play).
 HOG_2_6 = ["HogRider", "Musketeer", "Cannon", "IceGolemite", "IceSpirits", "Skeletons", "Fireball", "Log"]
@@ -60,6 +78,8 @@ class Game:
     # ------------------------------------------------------------- static data
     def meta(self):
         a = self.engine.arena()
+        self.obs, _ = self.env.reset(seed=0)  # the engine has no state to read before a reset
+        self.out = []
         s = self.engine.state()
         return json.dumps({
             "tiles_x": a.tiles_x, "tiles_y": a.tiles_y,

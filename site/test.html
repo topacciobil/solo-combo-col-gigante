@@ -16,12 +16,12 @@ const log = (s, cls) => { const e = document.createElement("div"); if (cls) e.cl
   await py.loadPackage(["micropip", "numpy", "msgspec"]);
   const mp = py.pyimport("micropip");
   await mp.install(["gymnasium", "pettingzoo", "cloudpickle", "farama-notifications", "typing-extensions"]);
-  const wheels = (await (await fetch("wheels/index.txt")).text()).split(/\s+/).filter((w) => w.endsWith(".whl"));
-  for (const w of wheels) await mp.install(new URL("wheels/" + w, location.href).href, { deps: false });
+  const wheels = (await (await fetch("wheels/index.txt", { cache: "no-store" })).text()).split(/\s+/).filter((w) => w.endsWith(".whl"));
+  for (const w of wheels) await mp.install.callKwargs(new URL("wheels/" + w, location.href).href, { deps: false });
   log(`caricato in ${Math.round(performance.now() - t0)} ms: ${wheels.join(", ")}`);
-  py.runPython(await (await fetch("py/game.py")).text());
-  py.runPython(await (await fetch("py/hash_test.py")).text().then((s) => s.replace('if __name__ == "__main__":', "if False:")));
-  const ref = await (await fetch("py/hash_ref.json")).json();
+  py.runPython(await (await fetch("py/game.py", { cache: "no-store" })).text());
+  py.runPython(await (await fetch("py/hash_test.py", { cache: "no-store" })).text().then((s) => s.replace('if __name__ == "__main__":', "if False:")));
+  const ref = await (await fetch("py/hash_ref.json", { cache: "no-store" })).json();
   const t1 = performance.now();
   const got = JSON.parse(py.runPython(`import json; json.dumps(run(Game, ${ref.seed}))`));
   const ms = performance.now() - t1;

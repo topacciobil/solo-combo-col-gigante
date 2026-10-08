@@ -21,12 +21,12 @@ async function boot() {
   const micropip = py.pyimport("micropip");
   await micropip.install(["gymnasium", "pettingzoo", "cloudpickle", "farama-notifications", "typing-extensions"]);
   progress("Carico il motore di gioco (RoyaleSim)...", 55);
-  const wheels = (await (await fetch("wheels/index.txt")).text()).split(/\s+/).filter((w) => w.endsWith(".whl"));
+  const wheels = (await (await fetch("wheels/index.txt", { cache: "no-store" })).text()).split(/\s+/).filter((w) => w.endsWith(".whl"));
   for (const w of wheels) {
-    await micropip.install(new URL("wheels/" + w, self.location.href).href, { deps: false });
+    await micropip.install.callKwargs(new URL("wheels/" + w, self.location.href).href, { deps: false });
   }
   progress("Preparo l'arena...", 80);
-  py.runPython(await (await fetch("py/game.py")).text(), { globals: py.globals });
+  py.runPython(await (await fetch("py/game.py", { cache: "no-store" })).text(), { globals: py.globals });
   game = py.globals.get("Game")();
   say("ready", { meta: JSON.parse(game.meta()) });
 }
