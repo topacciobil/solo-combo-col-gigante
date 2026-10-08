@@ -44,12 +44,19 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Rust target for Emscripten
+      # Today's nightly emits wasm features (bulk-memory-opt, call-indirect-overlong...) that the
+      # wasm-opt of Emscripten 3.1.58 (Pyodide 0.27) rejects. Use the toolchain Pyodide pins for itself.
+      - name: Rust toolchain Pyodide ${{ env.PYODIDE_VERSION }} pins
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
-          rustup toolchain install nightly --profile minimal
-          rustup default nightly
-          rustup target add wasm32-unknown-emscripten
+          python -m pip install "pyodide-build<0.30"
+          pyodide xbuildenv install ${{ env.PYODIDE_VERSION }}
+          TC=$(pyodide config get rust_toolchain)
+          echo "Pyodide rust_toolchain: $TC"
+          rustup toolchain install "$TC" --profile minimal
+          rustup default "$TC"
+          rustup target add wasm32-unknown-emscripten --toolchain "$TC"
+          echo "RUSTUP_TOOLCHAIN=$TC" >> "$GITHUB_ENV"
           rustc --version
 
       # The same data staging as RoyaleSim's own wheels.yml: the crate include_str!s these files.
@@ -73,7 +80,7 @@ jobs:
           CIBW_PYODIDE_VERSION: ${{ env.PYODIDE_VERSION }}
           CIBW_TEST_SKIP: "*"
           # A wheel runs only its compiled-in card table (the crate's own note on checkout-data).
-          CIBW_ENVIRONMENT: MATURIN_PEP517_ARGS="--no-default-features"
+          CIBW_ENVIRONMENT: MATURIN_PEP517_ARGS="--no-default-features" RUSTUP_TOOLCHAIN="${{ env.RUSTUP_TOOLCHAIN }}"
         run: |
           pip install "cibuildwheel>=2.23,<4"
           cibuildwheel --output-dir ../wheelhouse
