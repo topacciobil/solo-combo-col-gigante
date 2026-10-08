@@ -34,9 +34,10 @@ from royalegym.replay import ReplayRecorder  # noqa: E402
 HOG_2_6 = ["HogRider", "Musketeer", "Cannon", "IceGolemite", "IceSpirits", "Skeletons", "Fireball", "Log"]
 
 
-def build_env():
+def build_env(blue_deck=None):
+    """Blue (the human) plays ``blue_deck`` (Hog 2.6 when None), red (the bot) always Hog 2.6."""
     reward = CombinedReward([(WinLossReward(), 1.0), (CrownReward(), 0.2), (TowerHPReward(), 0.1)])
-    return make_env(reward=reward, deck=HOG_2_6)
+    return make_env(reward=reward, deck=[list(blue_deck or HOG_2_6), HOG_2_6])
 
 
 def _t(v, sub):
@@ -44,8 +45,13 @@ def _t(v, sub):
 
 
 class Game:
-    def __init__(self):
-        self.env = build_env()
+    def __init__(self, blue_deck=None):
+        if blue_deck:
+            blue_deck = list(blue_deck)
+            if len(blue_deck) != 8 or len(set(blue_deck)) != 8:
+                raise ValueError("a deck is eight different cards")
+        self.deck = list(blue_deck or HOG_2_6)
+        self.env = build_env(self.deck)
         self.engine = self.env.engine
         a = self.engine.arena()
         self.sub, self.nx, self.ny = a.subtile, a.tiles_x, a.tiles_y

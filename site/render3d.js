@@ -5,6 +5,8 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
+import { CARD_LOOK, SPELL_LOOK, WEAPON_MESHES, buildProc, clipsFor, displayName, lookFor, modelFilesFor, PROC, toon as toonMat } from "./cards3d.js?v=202610082248";
+window.cardDisplayName = displayName;
 
 const E = { UID: 0, TEAM: 1, KIND: 2, CARD: 3, SLOT: 4, X: 5, Y: 6, HP: 7, MAXHP: 8, R: 9, FLY: 10, DEPLOY: 11,
   STUN: 12, SHIELD: 13, PHASE: 14, TARGET: 15, FX: 16, FY: 17 };
@@ -16,19 +18,14 @@ const GHOST_OK = new THREE.Color("#d8ecff"), GHOST_BAD = new THREE.Color("#ff607
 const ELEV = THREE.MathUtils.degToRad(52); // camera elevation above the ground plane
 const FLY_H = 1.8;
 const sfx = (n, gap) => window.SFX && window.SFX.play(n, gap);
-const ATTACK_SFX = { Musketeer: "shoot", Cannon: "cannon", IceSpirits: "ice", IceGolemite: "swing", Skeletons: "swing", HogRider: "swing" };
+const STYLE_SFX = { bow: "shoot", shoot1: "shoot", cast: "ice", throw: "pop", punch: "swing", melee1: "swing", melee2: "swing", heavy: "swing", ride: "swing" };
+const PROC_SFX = { cannon: "cannon", mortar: "cannon", xbow: "arrow", tesla: "ice", inferno: "ice", spirit: "ice", sparky: "boom", dragon: "boom", imp: "swing" };
 
 // engine tiles (x right, y towards red) -> world (X right, Z towards the viewer, Y up)
 const wx = (x) => x - 9;
 const wz = (y) => 16 - y;
 
-// Which model plays each card, its height in tiles and its animation clips.
-const MODELS = {
-  Skeletons: { file: "skeleton", h: 1.35, clips: { idle: "Idle", move: "Running_C", attack: "1H_Melee_Attack_Chop", death: "Death_C_Skeletons", spawn: "Spawn_Ground_Skeletons" }, weapon: "skeleton_blade" },
-  Musketeer: { file: "musketeer", h: 2.0, clips: { idle: "2H_Melee_Idle", move: "Running_A", attack: "2H_Ranged_Shoot", aim: "2H_Ranged_Aiming", death: "Death_A", spawn: "Jump_Land" } },
-  HogRider: { file: "hog_rider", h: 1.5, rider: true, clips: { idle: "Sit_Chair_Idle", move: "Sit_Chair_Idle", attack: "1H_Melee_Attack_Chop", death: "Death_A" } },
-};
-const ASSETS = ["skeleton", "musketeer", "hog_rider", "archer", "king", "skeleton_blade", "tower_blue", "tower_red",
+const ASSETS = ["archer", "king", "tower_blue", "tower_red",
   "castle_blue", "castle_red", "bridge", "tree_a", "tree_b", "trees_large", "rock_a", "rock_c", "barrel", "wall"];
 
 class Renderer3D {
@@ -64,6 +61,7 @@ class Renderer3D {
 
     const loader = new GLTFLoader();
     loader.setMeshoptDecoder(MeshoptDecoder);
+    this.loader = loader;
     let done = 0;
     await Promise.all(ASSETS.map(async (name) => {
       const g = await loader.loadAsync(`assets/${name}.glb`);
@@ -199,6 +197,61 @@ class Renderer3D {
     return wrap;
   }
 
+  // ------------------------------------------------------------------ models on demand
+  // The characters weigh ~0.6 MB each: load only those the two decks (and their spawns) need.
+  async ensureModels(cardNames, onProgress) {
+    const files = new Set(modelFilesFor(cardNames));
+    files.add("skel_minion"); // spawned units that are not cards of their own
+    const todo = [...files].filter((f) => !this.models[f]);
+    let done = 0;
+    await Promise.all(todo.map(async (f) => {
+      this.models[f] = await this.loader.loadAsync(`assets/${f}.glb`);
+      onProgress && onProgress(++done / todo.length);
+    }));
+  }
+
+  cardByName(name) {
+    if (!this._byName) {
+      this._byName = {};
+      for (const c of Object.values(this.meta.cards)) this._byName[c.name] = c;
+    }
+    return this._byName[name] || { name };
+  }
+
+  // One actor for a card (or a spawned unit): {root, mixer, actions, clips, proc, mount, h}.
+  buildActor(name, team, entity = null, card = null) {
+    const look = lookFor(card || this.cardByName(name), entity);
+    if (look.proc) {
+      const p = buildProc(look);
+      return { root: p.root, proc: p, h: 1.2 * (look.size || 1), look };
+    }
+    if (!this.models[look.model]) {  // not loaded (should not happen after ensureModels): a stand-in
+      const p = buildProc({ proc: "golem", color: "#999", size: 0.7 });
+      return { root: p.root, proc: p, h: 1, look };
+    }
+    const ch = this.character(look.model, team, look);
+    const group = new THREE.Group();
+    const h = look.h || 1.4;
+    let mount = null;
+    if (look.mount) {
+      const color = look.mountColor || { pig: "#f0a4a4", horse: "#9a6a3a", ram: "#c8c8c8" }[look.mount];
+      mount = PROC.pig(color);
+      mount.root.scale.setScalar(1.35);
+      if (look.mount === "horse") mount.root.scale.set(1.3, 1.55, 1.6);
+      if (look.mount === "ram") for (const x of [-0.18, 0.18]) {
+        const horn = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.035, 6, 10, Math.PI * 1.3), toonMat("#e8dcc0"));
+        horn.position.set(x, 0.7, 0.55); horn.rotation.y = Math.PI / 2; mount.root.add(horn);
+      }
+      group.add(mount.root);
+    }
+    this.fitHeight(ch.root, h);
+    for (const [bone, prop] of look.attach || []) this.attachToBone(ch.root, bone, prop);
+    if (mount) ch.root.position.set(0, 0.68 * (look.mount === "horse" ? 1.45 : 1), -0.07);
+    if (look.hover) ch.root.position.y += look.hover;
+    group.add(ch.root);
+    return { root: group, model: ch.root, mixer: ch.mixer, actions: ch.actions, clips: clipsFor(look), mount, h, look };
+  }
+
   // ------------------------------------------------------------------ card portraits
   // Each card's own model, rendered once into a small image for the hand (no game art involved).
   portraits(cardNames) {
@@ -213,29 +266,23 @@ class Renderer3D {
       scene.add(new THREE.HemisphereLight("#fff6e0", "#506070", 2.0));
       const sun = new THREE.DirectionalLight("#ffffff", 1.8); sun.position.set(2, 4, 5); scene.add(sun);
       const holder = new THREE.Group();
-      const spec = MODELS[name];
-      if (spec) {
-        const ch = this.character(spec.file, 0);
-        this.fitHeight(ch.root, spec.h);
-        const clip = ch.actions[spec.clips.idle];
-        if (clip) { clip.play(); ch.mixer.update(0.3); }
-        if (spec.weapon) this.attachToBone(ch.root, "handslot.r", spec.weapon);
-        if (spec.rider) { const pig = makePig(0); pig.scale.setScalar(1.35); holder.add(pig); ch.root.position.y = 0.68; }
-        holder.add(ch.root);
-      } else if (name === "Fireball" || name === "Log") {
-        holder.add(makeSpell(name, 0));
-        if (name === "Log") holder.scale.setScalar(0.45);
+      if (SPELL_LOOK[name]) {
+        const look = SPELL_LOOK[name];
+        const sp = makeSpell(name, 0);
+        holder.add(sp);
+        if (look.roll) holder.scale.setScalar(0.45);
+        if (look.area) { sp.rotation.x = 1.1; sp.scale.setScalar(0.5); }  // tilt the disc towards the camera
       } else {
-        const p = (PROCEDURAL[name] || PROCEDURAL.default)(0, 0.5);
-        p.root.scale.setScalar(1.3);
-        holder.add(p.root);
+        const a = this.buildActor(name, 0);
+        if (a.actions) { const idle = a.actions[a.clips.idle]; if (idle) { idle.play(); a.mixer.update(0.3); } }
+        holder.add(a.root);
       }
       holder.rotation.y = 0.5;
       scene.add(holder);
       const box = new THREE.Box3().setFromObject(holder);
       const size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
       const cam = new THREE.PerspectiveCamera(30, W / H, 0.1, 100);
-      const dist = Math.max(size.y, size.x * H / W) / (2 * Math.tan(THREE.MathUtils.degToRad(15))) * 1.15;
+      const dist = Math.max(size.y, size.x * H / W, 0.4) / (2 * Math.tan(THREE.MathUtils.degToRad(15))) * 1.15;
       cam.position.set(c.x, c.y + size.y * 0.15, c.z + dist);
       cam.lookAt(c);
       r.render(scene, cam);
@@ -311,22 +358,11 @@ class Renderer3D {
     this.ghosts = this.ghosts || {};
     if (name in this.ghosts) return this.ghosts[name];
     let root = null;
-    const spec = MODELS[name];
-    if (spec) {
-      const ch = this.character(spec.file, 0);
-      this.fitHeight(ch.root, spec.h);
-      const idle = ch.actions[spec.clips.idle];
-      if (idle) { idle.play(); ch.mixer.update(0.2); }
+    if (!SPELL_LOOK[name]) {
+      const a = this.buildActor(name, 0);
+      if (a.actions) { const idle = a.actions[a.clips.idle]; if (idle) { idle.play(); a.mixer.update(0.2); } }
       root = new THREE.Group();
-      if (spec.rider) { const pig = makePig(0); pig.scale.setScalar(1.35); root.add(pig); ch.root.position.y = 0.68; }
-      root.add(ch.root);
-    } else if (PROCEDURAL[name]) {
-      root = new THREE.Group();
-      const p = PROCEDURAL[name](0, 0.5);
-      p.root.scale.setScalar(1.3);
-      root.add(p.root);
-    }
-    if (root) {
+      root.add(a.root);
       root.rotation.y = Math.PI; // facing the enemy
       root.traverse((o) => {
         if (!o.isMesh) return;
@@ -352,15 +388,20 @@ class Renderer3D {
   }
 
   // ------------------------------------------------------------------ actors
-  character(name, team) {
+  character(name, team, look = null) {
     const g = this.models[name];
     const root = SkeletonUtils.clone(g.scene);
+    const weapons = WEAPON_MESHES[name] || [];
+    const tint = look && look.tint ? new THREE.Color(look.tint) : null;
     root.traverse((o) => {
       if (o.isMesh) {
         o.frustumCulled = false;
+        if (look && weapons.includes(o.name) && !(look.show || []).includes(o.name)) { o.visible = false; return; }
         // Own materials per unit: flashes and fades must not leak to every unit of the same type.
         o.material = o.material.clone();
         if (/Cape|Cloak/.test(o.name)) o.material.color = TEAM[team].clone().lerp(new THREE.Color("#ffffff"), 0.15);
+        else if (tint && !weapons.includes(o.name)) o.material.color.multiply(tint);
+        if (look && look.ghostly) { o.material.transparent = true; o.material.opacity = 0.6; }
       }
     });
     const mixer = new THREE.AnimationMixer(root);
@@ -456,35 +497,17 @@ class Renderer3D {
     const unit = { uid: e[E.UID], team, card: card.name, holder: new THREE.Group(), body: new THREE.Group(), state: "",
       lastX: e[E.X], lastY: e[E.Y], yaw: team === 0 ? Math.PI : 0, flash: 0, hp: e[E.HP], born: performance.now() };
     unit.holder.add(this.blobShadow(radius), this.teamRing(team, radius), unit.body);
-    const spec = MODELS[card.name];
-    if (spec) {
-      const ch = this.character(spec.file, team);
-      this.fitHeight(ch.root, spec.h);
-      unit.mixer = ch.mixer; unit.actions = ch.actions; unit.clips = spec.clips;
-      if (spec.weapon) this.attachToBone(ch.root, "handslot.r", spec.weapon);
-      addOutline(ch.root, 0.035);
-      if (spec.rider) {
-        const pig = makePig(team);
-        pig.scale.setScalar(1.35);
-        addOutline(pig, 0.025);
-        unit.pig = pig;
-        unit.body.add(pig);
-        ch.root.position.set(0, 0.68, -0.07);
-      }
-      unit.body.add(ch.root);
-      unit.model = ch.root;
-    } else {
-      const proc = PROCEDURAL[card.name] || PROCEDURAL.default;
-      const p = proc(team, radius, card);
-      p.root.scale.setScalar(1.3);
-      addOutline(p.root, 0.03);
-      unit.body.add(p.root);
-      unit.proc = p;
-    }
+    const a = this.buildActor(card.name, team, e, this.meta.cards[e[E.CARD]] || null);
+    addOutline(a.root, a.actions ? 0.035 : 0.03);
+    unit.body.add(a.root);
+    unit.look = a.look;
+    if (a.actions) { unit.mixer = a.mixer; unit.actions = a.actions; unit.clips = a.clips; unit.model = a.model; }
+    if (a.proc) unit.proc = a.proc;
+    if (a.mount) unit.pig = { legs: a.mount.legs, position: a.mount.root.position };
     if (e[E.FLY]) unit.body.position.y = FLY_H;
     const barW = Math.max(0.7, radius * 2);
     unit.bar = this.hpBar(barW);
-    unit.bar.position.y = (spec ? spec.h : 1.0) + (e[E.FLY] ? FLY_H : 0) + 0.35;
+    unit.bar.position.y = a.h + (a.mount ? 0.7 : 0) + (e[E.FLY] ? FLY_H : 0) + 0.35;
     unit.bar.visible = false;
     unit.holder.add(unit.bar);
     this.scene.add(unit.holder);
@@ -614,7 +637,7 @@ class Renderer3D {
     if (e[E.DEPLOY] > 0) state = u.clips && u.clips.spawn ? "spawn" : "idle";
     else if (e[E.PHASE] > 0 && e[E.TARGET] >= 0) state = "attack";
     else if (moved > 0.004) state = "move";
-    if (state === "attack" && u.state !== "attack") sfx(ATTACK_SFX[u.card] || "swing", 60);
+    if (state === "attack" && u.state !== "attack") sfx((u.look && (STYLE_SFX[u.look.style] || PROC_SFX[u.look.proc])) || "swing", 60);
     if (u.state !== "spawn" || e[E.DEPLOY] <= 0) this.play(u, state);
     u.moving = state === "move";
     u.attacking = state === "attack";
@@ -721,38 +744,46 @@ class Renderer3D {
   // ------------------------------------------------------------------ spells, projectiles, effects
   syncSpells(f, now) {
     const live = new Set();
-    for (const s of f.sp) {
-      const [team, cid, motion, x, y, ax, ay, travelled, length] = s;
+    const t = now / 1000;
+    for (const sp of f.sp) {
+      const [team, cid, motion, x, y, ax, ay] = sp;
       const card = (this.meta.cards[cid] || {}).name || "?";
+      const look = SPELL_LOOK[card] || { area: "#9fe8ff", radius: 2.5 };
       const key = `${team}:${cid}:${ax}:${ay}`;
       live.add(key);
       let v = this.spells.get(key);
       if (!v) {
-        v = { obj: makeSpell(card, team), card, team, ax, ay, startX: x, startY: y };
-        if (card === "Log") sfx("roll", 300);
+        v = { obj: makeSpell(card, team, motion), card, look, team, ax, ay, startX: x, startY: y };
+        if (look.roll) sfx("roll", 300);
         this.spells.set(key, v);
         this.scene.add(v.obj);
       }
       v.last = { x, y, motion };
-      if (card === "Log") {
+      if (look.roll) {                                  // The Log, Barbarian Barrel
         v.obj.position.set(wx(x), motion === 1 ? 1.2 : 0.45, wz(y));
         v.obj.rotation.x += motion === 2 ? 0.35 : 0;
-      } else if (motion === 0) {
+      } else if (motion === 0) {                        // flying to its target
         const total = Math.hypot(ax - v.startX, ay - v.startY) || 1;
-        const left = Math.hypot(ax - x, ay - y);
-        const p = 1 - left / total;
+        const p = 1 - Math.hypot(ax - x, ay - y) / total;
         v.obj.position.set(wx(x), 0.6 + Math.sin(Math.PI * p) * Math.min(6, total * 0.35), wz(y));
-      } else {
-        v.obj.position.set(wx(x), 0.1, wz(y));
+        if (look.fly === "rocket" || look.fly === "arrows") v.obj.lookAt(wx(ax), 0, wz(ay));
+        else v.obj.rotation.y += 0.2;
+      } else {                                          // an area on the ground
+        v.obj.position.set(wx(x), 0.06, wz(y));
+        const pulse = 1 + Math.sin(t * 6) * 0.04;
+        v.obj.scale.set(pulse, 1, pulse);
+        if (look.swirl) v.obj.rotation.y += 0.25;
+        if (look.bolts && v.obj.userData.bolts) v.obj.userData.bolts.forEach((b, i) => { b.visible = Math.sin(t * 25 + i * 2) > 0.2; });
       }
     }
     for (const [key, v] of this.spells) {
       if (live.has(key)) continue;
       this.scene.remove(v.obj);
       this.spells.delete(key);
-      if (v.card === "Fireball") this.explosion(wx(v.ax), wz(v.ay), 2.5, "#ff8a1a");
-      else if (v.card === "Log") this.burst(new THREE.Vector3(wx(v.last.x), 0, wz(v.last.y)), "#a77b4b", 10, 1.4);
-      else this.explosion(wx(v.ax), wz(v.ay), 2, "#9fe8ff");
+      const look = v.look;
+      if (look.fly) this.explosion(wx(v.ax), wz(v.ay), look.radius || 2, look.color);
+      else if (look.roll) this.burst(new THREE.Vector3(wx(v.last.x), 0, wz(v.last.y)), "#a77b4b", 10, 1.4);
+      else this.burst(new THREE.Vector3(wx(v.last.x), 0, wz(v.last.y)), look.area || "#9fe8ff", 8, 1.2);
     }
   }
 
@@ -870,26 +901,6 @@ function addOutline(root, thickness) {
 // ------------------------------------------------------------------ procedural models
 function toon(color, extra = {}) { return new THREE.MeshStandardMaterial({ color, roughness: 0.75, metalness: 0.05, flatShading: true, ...extra }); }
 
-function makePig(team) {
-  const pig = new THREE.Group();
-  const skin = toon("#f0a4a4");
-  const body = new THREE.Mesh(new THREE.SphereGeometry(0.42, 12, 10), skin);
-  body.scale.set(0.85, 0.75, 1.3); body.position.y = 0.45;
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.26, 10, 8), skin);
-  head.position.set(0, 0.55, 0.55);
-  const snout = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 0.12, 10).rotateX(Math.PI / 2), toon("#e48a8a"));
-  snout.position.set(0, 0.52, 0.8);
-  const saddle = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.08, 0.5), toon(team ? "#c43a48" : "#2f6fd6"));
-  saddle.position.set(0, 0.76, -0.05);
-  pig.add(body, head, snout, saddle);
-  pig.legs = [];
-  for (const [x, z] of [[-0.18, 0.32], [0.18, 0.32], [-0.18, -0.32], [0.18, -0.32]]) {
-    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.3, 6), toon("#d98c8c"));
-    leg.position.set(x, 0.15, z);
-    pig.add(leg); pig.legs.push(leg);
-  }
-  return pig;
-}
 
 function makeBridge(width, length) {
   const g = new THREE.Group();
@@ -915,81 +926,61 @@ function makeBridge(width, length) {
   return g;
 }
 
-function makeSpell(card, team) {
-  if (card === "Log") {
-    const g = new THREE.Group();
-    const log = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 3.9, 12).rotateZ(Math.PI / 2), toon("#8a5a2b"));
-    const ringA = new THREE.Mesh(new THREE.CircleGeometry(0.4, 12).rotateY(Math.PI / 2), toon("#d9b07a"));
-    ringA.position.x = 1.96;
-    const ringB = ringA.clone(); ringB.position.x = -1.96; ringB.rotation.y = -Math.PI / 2;
-    g.add(log, ringA, ringB);
+function makeSpell(card, team, motion = 0) {
+  const look = SPELL_LOOK[card] || { area: "#9fe8ff", radius: 2.5 };
+  const g = new THREE.Group();
+  if (look.roll) {
+    const len = look.roll;
+    g.add(new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, len, 12).rotateZ(Math.PI / 2), toon(look.color)));
+    const ring = new THREE.Mesh(new THREE.CircleGeometry(0.4, 12).rotateY(Math.PI / 2), toon("#d9b07a"));
+    ring.position.x = len / 2 + 0.01;
+    const ring2 = ring.clone(); ring2.position.x = -len / 2 - 0.01; ring2.rotation.y = -Math.PI / 2;
+    g.add(ring, ring2);
     return g;
   }
-  if (card === "Fireball") {
-    const g = new THREE.Group();
-    g.add(new THREE.Mesh(new THREE.SphereGeometry(0.55, 14, 10), new THREE.MeshBasicMaterial({ color: "#ff7a1a" })));
-    g.add(new THREE.Mesh(new THREE.SphereGeometry(0.32, 10, 8), new THREE.MeshBasicMaterial({ color: "#ffe08a" })));
+  if (look.fly) {
+    const basic = (c) => new THREE.MeshBasicMaterial({ color: c });
+    if (look.fly === "ball") { g.add(new THREE.Mesh(new THREE.SphereGeometry(0.55, 14, 10), basic(look.color))); g.add(new THREE.Mesh(new THREE.SphereGeometry(0.32, 10, 8), basic("#ffe08a"))); }
+    else if (look.fly === "snow") g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(0.55, 1), toon("#ffffff")));
+    else if (look.fly === "barrel") g.add(new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.7, 10), toon(look.color)));
+    else if (look.fly === "box") g.add(new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.8), toon(look.color)));
+    else if (look.fly === "rocket") {
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 1.2, 10).rotateX(Math.PI / 2), toon("#d0d0d8"));
+      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.4, 10).rotateX(Math.PI / 2), toon(look.color));
+      tip.position.z = 0.8;
+      const fire = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.5, 8).rotateX(-Math.PI / 2), basic("#ffb040"));
+      fire.position.z = -0.85;
+      g.add(body, tip, fire);
+    } else if (look.fly === "arrows") {
+      for (let i = 0; i < 9; i++) {
+        const a = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.8, 4).rotateX(Math.PI / 2), toon(look.color));
+        a.position.set((i % 3 - 1) * 0.6, (Math.floor(i / 3) - 1) * 0.3, (Math.floor(i / 3) - 1) * 0.4);
+        g.add(a);
+      }
+    }
     return g;
   }
-  return new THREE.Mesh(new THREE.SphereGeometry(0.4, 10, 8), new THREE.MeshBasicMaterial({ color: "#9fe8ff" }));
+  // an area: a translucent disc of the spell's radius with a rim
+  const r = look.radius || 2.5;
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(r, 40).rotateX(-Math.PI / 2),
+    new THREE.MeshBasicMaterial({ color: look.area, transparent: true, opacity: 0.35, depthWrite: false }));
+  const rim = new THREE.Mesh(new THREE.RingGeometry(r * 0.94, r, 48).rotateX(-Math.PI / 2),
+    new THREE.MeshBasicMaterial({ color: look.area, transparent: true, opacity: 0.85, depthWrite: false }));
+  g.add(disc, rim);
+  if (look.swirl) for (let i = 0; i < 3; i++) {
+    const arm = new THREE.Mesh(new THREE.TorusGeometry(r * (0.35 + i * 0.2), 0.06, 4, 24, Math.PI), new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.6 }));
+    arm.rotation.x = -Math.PI / 2; arm.position.y = 0.3 + i * 0.3; g.add(arm);
+  }
+  if (look.bolts) {
+    g.userData.bolts = [];
+    for (let i = 0; i < 3; i++) {
+      const bolt = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.02, 6, 5), new THREE.MeshBasicMaterial({ color: "#fffbd0" }));
+      bolt.position.set((i - 1) * r * 0.5, 3, (i % 2) * r * 0.3);
+      g.add(bolt); g.userData.bolts.push(bolt);
+    }
+  }
+  return g;
 }
-
-const PROCEDURAL = {
-  IceGolemite(team, r) {
-    const root = new THREE.Group();
-    const ice = toon("#bfe9ff", { emissive: "#2a6f8f", emissiveIntensity: 0.25 });
-    const body = new THREE.Mesh(new THREE.IcosahedronGeometry(0.55, 0), ice); body.position.y = 0.75;
-    const head = new THREE.Mesh(new THREE.IcosahedronGeometry(0.3, 0), ice); head.position.y = 1.4;
-    const armL = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.6, 0.28), ice); armL.position.set(-0.6, 0.75, 0);
-    const armR = armL.clone(); armR.position.x = 0.6;
-    const legL = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.4, 0.26), ice); legL.position.set(-0.22, 0.2, 0);
-    const legR = legL.clone(); legR.position.x = 0.22;
-    const band = new THREE.Mesh(new THREE.TorusGeometry(0.45, 0.06, 6, 16).rotateX(Math.PI / 2), toon(team ? "#ff4d5e" : "#3d8bff"));
-    band.position.y = 0.95;
-    root.add(body, head, armL, armR, legL, legR, band);
-    let t = 0;
-    return { root, update(dt, u) { t += dt * (u.moving ? 6 : 2); const s = Math.sin(t);
-      legL.rotation.x = u.moving ? s * 0.6 : 0; legR.rotation.x = u.moving ? -s * 0.6 : 0;
-      armR.rotation.x = u.attacking ? -Math.abs(Math.sin(t * 1.5)) * 1.6 : s * 0.2; armL.rotation.x = -armR.rotation.x * 0.3;
-      body.position.y = 0.75 + (u.moving ? Math.abs(s) * 0.06 : 0); } };
-  },
-  IceSpirits(team, r) {
-    const root = new THREE.Group();
-    const orb = new THREE.Mesh(new THREE.IcosahedronGeometry(0.32, 1), toon("#dff6ff", { emissive: "#58c6ff", emissiveIntensity: 0.6 }));
-    orb.position.y = 0.45;
-    const eyeM = new THREE.MeshBasicMaterial({ color: "#123" });
-    const e1 = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 4), eyeM); e1.position.set(-0.1, 0.52, 0.28);
-    const e2 = e1.clone(); e2.position.x = 0.1;
-    const tuft = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.3, 6), toon(team ? "#ff98a2" : "#9cc4ff"));
-    tuft.position.y = 0.85;
-    root.add(orb, e1, e2, tuft);
-    let t = Math.random() * 6;
-    return { root, update(dt, u) { t += dt * 10; root.position.y = Math.abs(Math.sin(t)) * (u.moving ? 0.35 : 0.08); } };
-  },
-  Cannon(team, r) {
-    const root = new THREE.Group();
-    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.85, 0.35, 10), toon("#8a6a45"));
-    base.position.y = 0.18;
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.7, 0.07, 6, 20).rotateX(Math.PI / 2), toon(team ? "#ff4d5e" : "#3d8bff"));
-    ring.position.y = 0.36;
-    const turret = new THREE.Group(); turret.position.y = 0.55;
-    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.26, 1.1, 12).rotateX(Math.PI / 2), toon("#3d3f45", { metalness: 0.5, roughness: 0.4 }));
-    barrel.position.z = 0.35;
-    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.33, 12, 8), toon("#4a4c52"));
-    turret.add(barrel, ball);
-    root.add(base, ring, turret);
-    let recoil = 0;
-    return { root, update(dt, u) { if (u.attacking && recoil <= 0) recoil = 0.6; recoil = Math.max(0, recoil - dt);
-      barrel.position.z = 0.35 - (recoil > 0.45 ? (recoil - 0.45) * 2 : 0); } };
-  },
-  default(team, r) {
-    const root = new THREE.Group();
-    const m = new THREE.Mesh(new THREE.CapsuleGeometry(Math.max(0.25, r * 0.7), 0.5, 4, 8), toon(team ? "#ff4d5e" : "#3d8bff"));
-    m.position.y = 0.6;
-    root.add(m);
-    return { root, update() {} };
-  },
-};
 
 function mulberry32(a) { return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 

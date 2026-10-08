@@ -5,3 +5,4 @@ V=$(date +%Y%m%d%H%M)
 sed -i -E "s#(href=\"style\.css)(\?v=[0-9]+)?\"#\1?v=$V\"#; s#(src=\"(sfx|game|render3d)\.js)(\?v=[0-9]+)?\"#\1?v=$V\"#g" index.html
 sed -i -E "s#new Worker\(\"engine-worker\.js(\?v=[0-9]+)?\"\)#new Worker(\"engine-worker.js?v=$V\")#" game.js
 echo "version $V"
+sed -i -E "s#from \"\./cards3d\.js(\?v=[0-9]+)?\"#from \"./cards3d.js?v=$V\"#" render3d.js

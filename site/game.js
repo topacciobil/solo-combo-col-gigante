@@ -50,7 +50,7 @@ const RENDER_DELAY = 0; // frames are already scheduled at their own tick time
 // ------------------------------------------------------------------ setup
 
 // The engine runs in a Web Worker (Pyodide + RoyaleSim in WebAssembly + the bot in onnxruntime-web).
-const worker = new Worker("engine-worker.js?v=202610082230");
+const worker = new Worker("engine-worker.js?v=202610082248");
 let clock = null;      // {t0, firstTick, tickMs}: when each tick is due on this page's clock
 const queue = [];      // events waiting for their tick to be shown: {due, kind, data}
 let replayBytes = null;
@@ -68,6 +68,7 @@ async function init() {
   $("rematch").onclick = () => start(state.opponent, "");
   $("to-menu").onclick = () => { worker.postMessage({ type: "stop" }); state.inGame = false; show("menu"); };
   $("download-replay").onclick = downloadReplay;
+  initDeckUi();
   if (window.SFX) { $("mute").checked = SFX.muted; $("mute").onchange = () => { SFX.muted = $("mute").checked; }; }
   connect();
   worker.postMessage({ type: "boot" });
@@ -85,7 +86,7 @@ function downloadReplay() {
 }
 
 function show(id) {
-  for (const s of ["menu", "game", "end"]) $(s).classList.toggle("hidden", s !== id);
+  for (const s of ["menu", "deck", "game", "end"]) $(s).classList.toggle("hidden", s !== id);
   if (id === "game") resize();
 }
 
@@ -98,7 +99,17 @@ async function start(opponent, seed) {
   queue.length = 0; clock = null; replayBytes = null;
   $("menu-error").textContent = "";
   worker.postMessage({ type: "stop" });
-  worker.postMessage({ type: "play", opponent, seed: seed === "" ? Math.floor(Math.random() * 1e6) : Number(seed) });
+  if (r3d && r3d.ready) {
+    const need = [...new Set([...myDeck, ...BOT_DECK])];
+    $("menu-error").textContent = "Carico i modelli del mazzo...";
+    try {
+      await r3d.ensureModels(need);
+      const missing = myDeck.filter((n) => !PORTRAITS[n]);
+      if (missing.length) Object.assign(PORTRAITS, r3d.portraits(missing));
+    } catch (e) { console.warn("modelli del mazzo:", e); }
+    $("menu-error").textContent = "";
+  }
+  worker.postMessage({ type: "play", opponent, deck: myDeck, seed: seed === "" ? Math.floor(Math.random() * 1e6) : Number(seed) });
   state.inGame = true;
   show("game");
   renderHand();
@@ -112,6 +123,7 @@ function connect() {
       $("load-fill").style.width = m.pct + "%";
     } else if (m.type === "ready") {
       META = m.meta;
+      renderMyDeck();
       boot3d().finally(() => {
         $("loading").classList.add("hidden");
         $("play").disabled = false;
@@ -214,7 +226,10 @@ async function boot3d() {
     window.__r3d = r; // for debugging and perf measurement
     canvas.classList.add("hidden");
     resize();
-    try { PORTRAITS = r3d.portraits(Object.keys(LOOK)); } catch (e) { console.warn("ritratti non disponibili", e); }
+    try {
+      await r3d.ensureModels([...new Set([...myDeck, ...BOT_DECK])]);
+      PORTRAITS = r3d.portraits([...new Set([...myDeck, ...BOT_DECK])]);
+    } catch (e) { console.warn("ritratti non disponibili", e); }
     r3d.input = c3;
   } catch (e) {
     console.warn("3D non disponibile, uso il 2D:", e);
@@ -299,7 +314,7 @@ function cardHtml(id, slot) {
   const c = cardInfo(id);
   const look = LOOK[c.name] || { s: c.name.slice(0, 3), i: c.name.slice(0, 2), c: "#555" };
   const art = PORTRAITS[c.name] ? `<img class="art" src="${PORTRAITS[c.name]}" alt="">` : `<div class="icon">${look.i}</div>`;
-  return `<div class="cost"><b>${c.elixir}</b></div>${art}<div class="name">${DISPLAY[c.name] || c.name}</div>` +
+  return `<div class="cost"><b>${c.elixir}</b></div>${art}<div class="name">${niceName(c.name)}</div>` +
     (slot !== undefined ? `<div class="key">${slot + 1}</div>` : "");
 }
 
@@ -690,6 +705,128 @@ function draw() {
   drawUnits(cur.ents);
   drawSpells(cur.f);
   drawFx();
+}
+
+// ------------------------------------------------------------------ deck builder
+const BOT_DECK = ["HogRider", "Musketeer", "Cannon", "IceGolemite", "IceSpirits", "Skeletons", "Fireball", "Log"];
+let myDeck = loadDeck();
+let DECKS = { playable: [], presets: [] };
+let draft = null;
+
+function loadDeck() {
+  try {
+    const d = JSON.parse(localStorage.getItem("ra_deck") || "null");
+    if (Array.isArray(d) && d.length === 8 && new Set(d).size === 8) return d;
+  } catch (e) { /* storage blocked */ }
+  return BOT_DECK.slice();
+}
+
+function niceName(n) {
+  return (window.cardDisplayName && window.cardDisplayName(n)) || DISPLAY[n] || n.replace(/([a-z])([A-Z])/g, "$1 $2");
+}
+
+function cardByName(n) {
+  if (!META) return { name: n, elixir: "?" };
+  for (const c of Object.values(META.cards)) if (c.name === n) return c;
+  return { name: n, elixir: "?" };
+}
+
+function kindOf(c) {
+  if (c.placement === 1) return "building";
+  if ([2, 3, 4, 6].includes(c.placement)) return "spell";
+  return "troop";
+}
+const KIND_ICON = { troop: "\u2694", building: "\u{1F3F0}", spell: "\u2728" };
+const KIND_COLOR = { troop: "#4a6fa5", building: "#7a6a55", spell: "#8a4aa8" };
+
+function miniCard(n, extra = "") {
+  const c = cardByName(n), k = kindOf(c);
+  const look = LOOK[n];
+  const art = PORTRAITS[n] ? `<img class="art" src="${PORTRAITS[n]}" alt="">` : `<div class="icon">${look ? look.i : KIND_ICON[k]}</div>`;
+  return `<div class="mcard ${k} ${extra}" data-name="${n}" style="background:${look ? look.c : KIND_COLOR[k]}">` +
+    `<div class="cost"><b>${c.elixir}</b></div>${art}<div class="name">${niceName(n)}</div></div>`;
+}
+
+function avgElixir(deck) {
+  const xs = deck.map((n) => cardByName(n).elixir).filter((x) => typeof x === "number");
+  return xs.length ? (xs.reduce((a, b) => a + b, 0) / xs.length).toFixed(1) : "-";
+}
+
+function renderMyDeck() {
+  $("my-deck-cards").innerHTML = myDeck.map((n) => miniCard(n)).join("");
+  $("my-deck-avg").textContent = META ? `elisir medio ${avgElixir(myDeck)}` : "";
+}
+
+async function initDeckUi() {
+  try { DECKS = await (await fetch("cards/decks.json")).json(); } catch (e) { console.warn("decks.json", e); }
+  $("edit-deck").onclick = openBuilder;
+  $("deck-save").onclick = () => {
+    if (draft.length !== 8) { toast("Servono 8 carte", true); return; }
+    myDeck = draft.slice();
+    try { localStorage.setItem("ra_deck", JSON.stringify(myDeck)); } catch (e) { /* ignore */ }
+    renderMyDeck(); show("menu");
+  };
+  $("deck-cancel").onclick = () => show("menu");
+  $("deck-clear").onclick = () => { draft = []; renderBuilder(); };
+  for (const id of ["deck-search", "deck-kind", "deck-sort"]) $(id).oninput = renderBuilder;
+  renderMyDeck();
+}
+
+function openBuilder() {
+  if (!META) return;
+  draft = myDeck.slice();
+  $("presets").innerHTML = DECKS.presets.map((p, i) =>
+    `<button class="preset" data-i="${i}">${p.name}<small>${p.deck.slice(0, 3).map(niceName).join(", ")}...</small></button>`).join("");
+  $("presets").querySelectorAll(".preset").forEach((b) => { b.onclick = () => { draft = DECKS.presets[+b.dataset.i].deck.slice(); renderBuilder(); }; });
+  show("deck");
+  renderBuilder();
+  portraitsInBackground();
+}
+
+// Every card's portrait, rendered a few at a time in the background while the builder is open.
+let portraitJob = null;
+function portraitsInBackground() {
+  if (portraitJob || !r3d || !r3d.ready) return;
+  portraitJob = (async () => {
+    const todo = DECKS.playable.filter((n) => !PORTRAITS[n]);
+    try { await r3d.ensureModels(todo); } catch (e) { console.warn("modelli", e); return; }
+    for (let i = 0; i < todo.length; i += 6) {
+      const chunk = todo.slice(i, i + 6);
+      Object.assign(PORTRAITS, r3d.portraits(chunk));
+      for (const n of chunk) {
+        document.querySelectorAll(`.mcard[data-name="${n}"] .icon`).forEach((ic) => {
+          const img = document.createElement("img");
+          img.className = "art"; img.src = PORTRAITS[n]; img.alt = "";
+          ic.replaceWith(img);
+        });
+      }
+      await new Promise((r) => setTimeout(r, 30));
+    }
+  })().finally(() => { portraitJob = null; });
+}
+
+function renderBuilder() {
+  $("deck-slots").innerHTML = Array.from({ length: 8 }, (_, i) => draft[i] ? miniCard(draft[i], "in") : `<div class="mcard empty">+</div>`).join("");
+  $("deck-avg").textContent = `${draft.length}/8 \u00b7 elisir medio ${avgElixir(draft)}`;
+  const q = $("deck-search").value.trim().toLowerCase(), kind = $("deck-kind").value, sort = $("deck-sort").value;
+  let names = DECKS.playable.filter((n) => {
+    const c = cardByName(n);
+    return (kind === "all" || kindOf(c) === kind) && (!q || niceName(n).toLowerCase().includes(q) || n.toLowerCase().includes(q));
+  });
+  names.sort((a, b) => sort === "name" ? niceName(a).localeCompare(niceName(b)) : (cardByName(a).elixir - cardByName(b).elixir) || niceName(a).localeCompare(niceName(b)));
+  $("deck-grid").innerHTML = names.map((n) => miniCard(n, draft.includes(n) ? "picked" : "")).join("");
+  $("deck-grid").querySelectorAll(".mcard").forEach((el) => {
+    el.onclick = () => {
+      const n = el.dataset.name;
+      if (draft.includes(n)) draft = draft.filter((x) => x !== n);
+      else if (draft.length < 8) draft.push(n);
+      else { toast("Il mazzo ha gia' 8 carte: togline una", true); return; }
+      renderBuilder();
+    };
+  });
+  $("deck-slots").querySelectorAll(".mcard.in").forEach((el) => {
+    el.onclick = () => { draft = draft.filter((x) => x !== el.dataset.name); renderBuilder(); };
+  });
 }
 
 init().catch((e) => { $("menu-error").textContent = "Server non raggiungibile: " + e; });

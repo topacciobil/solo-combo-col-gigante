@@ -78,10 +78,17 @@ async function botAction() {
   return sampleAction(out.logits.data, parts[3]);
 }
 
-async function play(opponent, seed) {
+let gameDeck = null;
+async function play(opponent, seed, deck) {
   const id = ++seq;
   running = true;
   pending = 0;
+  const key = JSON.stringify(deck || null);
+  if (key !== gameDeck) {  // a new deck for the human: a new battle setup
+    const Game = py.globals.get("Game");
+    game = deck ? Game(py.toPy(deck)) : Game();
+    gameDeck = key;
+  }
   const scripted = opponent.startsWith("script:") ? opponent.slice(7) : "";
   if (!scripted) await loadBot(opponent);
   progress("Si gioca!", 100);
@@ -115,7 +122,7 @@ onmessage = async (ev) => {
   const m = ev.data;
   try {
     if (m.type === "boot") await boot();
-    else if (m.type === "play") await play(m.opponent, m.seed);
+    else if (m.type === "play") await play(m.opponent, m.seed, m.deck);
     else if (m.type === "action") pending = m.action;
     else if (m.type === "stop") { running = false; seq++; }
   } catch (e) {

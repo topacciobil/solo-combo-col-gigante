@@ -7,7 +7,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Royale Arena 1v1</title>
-<link rel="stylesheet" href="style.css?v=202610082230">
+<link rel="stylesheet" href="style.css?v=202610082248">
 <script type="importmap">
 { "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
@@ -28,7 +28,12 @@
         <div id="load-bar"><div id="load-fill"></div></div>
         <small>Il primo caricamento scarica ~20 MB (Python + motore), poi resta in cache.</small>
       </div>
-      <label>Avversario
+      <div id="my-deck">
+        <div class="row-head"><b>Il tuo mazzo</b> <span id="my-deck-avg"></span></div>
+        <div id="my-deck-cards"></div>
+        <button id="edit-deck">Modifica mazzo</button>
+      </div>
+      <label>Avversario <small>(il bot gioca sempre Hog 2.6)</small>
         <select id="opponent"></select>
       </label>
       <label>Seed <small>(vuoto = casuale)</small>
@@ -40,12 +45,34 @@
       <div class="help">
         <b>Comandi</b>: clicca una carta (o tasti <kbd>1</kbd>-<kbd>4</kbd>) e poi l'arena, oppure trascinala.
         Le caselle verdi sono quelle valide. <kbd>Esc</kbd> o clic destro annulla.<br>
-        Mazzo per entrambi: Hog 2.6. Una giocata entra nella decisione successiva del motore (ogni 0,5 s).
+        Scegli il tuo mazzo tra 119 carte; il bot usa Hog 2.6. Una giocata entra nella decisione successiva del motore (ogni 0,5 s).
       </div>
       <div id="menu-error" class="error"></div>
       <div class="footer">Questo materiale non è ufficiale e non è approvato da Supercell (vedi la <a href="https://www.supercell.com/fan-content-policy" target="_blank" rel="noopener">Fan Content Policy</a>). Modelli 3D: KayKit (CC0). Motore
         <a href="https://github.com/RoyaleGym" target="_blank" rel="noopener">RoyaleGym/RoyaleSim</a> (MIT).
         <a href="https://github.com/topacciobil/solo-combo-col-gigante" target="_blank" rel="noopener">Codice</a></div>
+    </div>
+  </section>
+
+  <!-- DECK BUILDER -->
+  <section id="deck" class="screen hidden">
+    <div class="deck-wrap">
+      <div class="deck-top">
+        <h2>Il tuo mazzo <span id="deck-avg"></span></h2>
+        <div id="deck-slots"></div>
+        <div class="row">
+          <button id="deck-save" class="big">Salva</button>
+          <button id="deck-cancel">Annulla</button>
+          <button id="deck-clear">Svuota</button>
+        </div>
+      </div>
+      <div class="deck-presets"><b>Mazzi pronti</b> <small>(i piu' giocati nelle partite reali)</small><div id="presets"></div></div>
+      <div class="deck-filters">
+        <input id="deck-search" type="search" placeholder="Cerca carta...">
+        <select id="deck-kind"><option value="all">Tutte</option><option value="troop">Truppe</option><option value="building">Edifici</option><option value="spell">Incantesimi</option></select>
+        <select id="deck-sort"><option value="elixir">Per elisir</option><option value="name">Per nome</option></select>
+      </div>
+      <div id="deck-grid"></div>
     </div>
   </section>
 
@@ -87,8 +114,8 @@
     </div>
   </section>
 </div>
-<script src="sfx.js?v=202610082230"></script>
-<script src="game.js?v=202610082230"></script>
-<script type="module" src="render3d.js?v=202610082230"></script>
+<script src="sfx.js?v=202610082248"></script>
+<script src="game.js?v=202610082248"></script>
+<script type="module" src="render3d.js?v=202610082248"></script>
 </body>
 </html>
