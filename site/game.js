@@ -90,6 +90,7 @@ async function start(opponent, seed) {
   state.debug = $("debug").checked;
   $("bot-hand").classList.toggle("hidden", !state.debug);
   Object.assign(state, { frames: [], last: null, mask: null, selected: -1, pending: null, towers: {}, fx: [], lastTowerHp: {}, plays: [0, 0] });
+  if (r3d) r3d.reset();
   queue.length = 0; clock = null; replayBytes = null;
   $("menu-error").textContent = "";
   worker.postMessage({ type: "stop" });
@@ -107,8 +108,10 @@ function connect() {
       $("load-fill").style.width = m.pct + "%";
     } else if (m.type === "ready") {
       META = m.meta;
-      $("loading").classList.add("hidden");
-      $("play").disabled = false;
+      boot3d().finally(() => {
+        $("loading").classList.add("hidden");
+        $("play").disabled = false;
+      });
     } else if (m.type === "start") {
       clock = { t0: performance.now() + 400, firstTick: m.firstTick, tickMs: m.tickMs };
     } else if (m.type === "events") {
@@ -153,6 +156,34 @@ function resize() {
   canvas.style.width = 18 * T + "px"; canvas.style.height = 32 * T + "px";
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   document.documentElement.style.setProperty("--arena-w", 18 * T + "px");
+  const c3 = $("arena3d");
+  c3.style.width = 18 * T + "px"; c3.style.height = 32 * T + "px";
+  if (r3d && r3d.ready) r3d.resize();
+}
+
+// ------------------------------------------------------------------ 2.5D renderer (render3d.js)
+let r3d = null;
+async function boot3d() {
+  if (!window.Renderer3D) await new Promise((res) => {
+    window.addEventListener("renderer3d-loaded", res, { once: true });
+    setTimeout(res, 15000);
+  });
+  if (!window.Renderer3D || new URLSearchParams(location.search).has("2d")) return;
+  try {
+    $("load-text").textContent = "Carico i modelli 3D...";
+    const c3 = $("arena3d");
+    c3.classList.remove("hidden");
+    c3.style.width = 18 * T + "px"; c3.style.height = 32 * T + "px";
+    const r = new window.Renderer3D();
+    await r.init(c3, META, (k) => { $("load-fill").style.width = Math.round(90 + 10 * k) + "%"; });
+    r3d = r;
+    canvas.classList.add("hidden");
+    r3d.input = c3;
+  } catch (e) {
+    console.warn("3D non disponibile, uso il 2D:", e);
+    $("arena3d").classList.add("hidden");
+    r3d = null;
+  }
 }
 
 // ------------------------------------------------------------------ stream handlers
@@ -187,12 +218,14 @@ function onMask(m) {
     for (let k = 0; k < 8; k++) bits[i * 8 + k] = (b >> (7 - k)) & 1;
   }
   state.mask = bits;
+  state.maskVersion = (state.maskVersion || 0) + 1;
 }
 
 function onPlay(p) {
   const look = LOOK[p.name] || {};
   if (p.ok) {
     state.plays[p.team] += 1;
+    if (r3d) r3d.playFx(p);
     addFx("ring", p.x, p.y, "", p.team, 900);
     if (p.team === 0 && state.pending) { state.pending = null; state.selected = -1; }
     if (p.team === 1) toast(`Bot: ${look.s || p.name}`);
@@ -274,7 +307,9 @@ function toast(text, bad) {
   const el = document.createElement("div");
   el.className = "toast" + (bad ? " bad" : "");
   el.textContent = text;
-  $("toasts").appendChild(el);
+  const box = $("toasts");
+  while (box.children.length >= 2) box.firstChild.remove();
+  box.appendChild(el);
   setTimeout(() => el.remove(), 2300);
 }
 
@@ -301,6 +336,7 @@ function select(slot) {
 }
 
 function tileAt(ev) {
+  if (r3d && r3d.ready) return r3d.pick(ev.clientX, ev.clientY);
   const r = canvas.getBoundingClientRect();
   const mx = ev.clientX - r.left, my = ev.clientY - r.top;
   if (mx < 0 || my < 0 || mx >= 18 * T || my >= 32 * T) return null;
@@ -335,8 +371,10 @@ document.addEventListener("pointerup", (ev) => {
     if (t) playAt(t);
   }
 });
-canvas.addEventListener("pointerdown", (ev) => { if (ev.button === 0) playAt(tileAt(ev)); });
-canvas.addEventListener("contextmenu", (ev) => { ev.preventDefault(); state.selected = -1; renderHand(); });
+for (const el of [canvas, $("arena3d")]) {
+  el.addEventListener("pointerdown", (ev) => { if (ev.button === 0) playAt(tileAt(ev)); });
+  el.addEventListener("contextmenu", (ev) => { ev.preventDefault(); state.selected = -1; renderHand(); });
+}
 document.addEventListener("keydown", (ev) => {
   if (!state.inGame) return;
   if (ev.key >= "1" && ev.key <= "4") select(Number(ev.key) - 1);
@@ -530,6 +568,11 @@ function draw() {
   requestAnimationFrame(draw);
   if (!META || $("game").classList.contains("hidden")) return;
   pump();
+  if (r3d && r3d.ready) {
+    r3d.render(interpolated(), { selected: state.selected, mask: state.mask, maskVersion: state.maskVersion,
+      hover: state.hover, hand: state.last ? state.last.hand : [], inGame: state.inGame });
+    return;
+  }
   ctx.clearRect(0, 0, 18 * T, 32 * T);
   drawField();
   const cur = interpolated();

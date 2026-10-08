@@ -17,15 +17,24 @@ Niente server: tutto gira nel tuo browser.
 | Motore di battaglia | [RoyaleSim](https://github.com/RoyaleGym/RoyaleSim) (Rust, MIT), compilato in WebAssembly per Pyodide dal workflow `.github/workflows/pages.yml`, allo stesso commit su cui è stato allenato il bot |
 | Ambiente (cosa vede il bot, mosse legali) | [RoyaleGym](https://github.com/RoyaleGym/RoyaleGym) 0.1.19, codice Python originale eseguito con [Pyodide](https://pyodide.org) |
 | Bot | rete esportata in ONNX ed eseguita con onnxruntime-web; campionamento identico a RoyaleLearn |
-| Grafica | canvas 2D, solo forme e simboli |
+| Grafica | 2.5D con [three.js](https://threejs.org) (camera ortografica inclinata); modelli 3D CC0 di KayKit, il resto procedurale; fallback 2D con `?2d` |
 
 Il motore è intero e deterministico, quindi nel browser le battaglie sono identiche a quelle in Python.
 
 ## Avvertenze
 
+*Questo materiale non è ufficiale e non è approvato da Supercell. Per maggiori informazioni consulta la
+[Fan Content Policy di Supercell](https://www.supercell.com/fan-content-policy).*
+
 Progetto amatoriale, **non affiliato né approvato da Supercell**. Non contiene asset del gioco e non
 interagisce in alcun modo con il gioco vero o con i suoi server. Il motore non è identico al gioco reale
 (vedi [How accurate is the engine](https://royalegym.github.io/RoyaleGym/accuracy/)).
+
+## Crediti asset
+
+- Modelli 3D: **KayKit** by Kay Lousberg ([kaylousberg.com](https://www.kaylousberg.com)), CC0 1.0: Character Pack Adventurers,
+  Character Pack Skeletons, Medieval Hexagon Pack. Ridotti e compressi con `tools/build_assets.mjs`.
+- three.js (MIT), Pyodide (MPL-2.0), onnxruntime-web (MIT), RoyaleGym/RoyaleSim (MIT).
 
 ## Licenze
 

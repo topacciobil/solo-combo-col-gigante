@@ -1,0 +1,3 @@
+Models: KayKit by Kay Lousberg (www.kaylousberg.com), CC0 1.0.
+Character Pack: Adventurers 1.0, Character Pack: Skeletons 1.0, Medieval Hexagon Pack 1.0.
+Reduced (meshes/animations kept: see web build script) and meshopt-compressed.

@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Royale Arena 1v1</title>
 <link rel="stylesheet" href="style.css">
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
 </head>
 <body>
 <div id="app">
@@ -33,9 +39,9 @@
         Mazzo per entrambi: Hog 2.6. Una giocata entra nella decisione successiva del motore (ogni 0,5 s).
       </div>
       <div id="menu-error" class="error"></div>
-      <div class="footer">Progetto amatoriale, non affiliato a Supercell. Motore
+      <div class="footer">Questo materiale non è ufficiale e non è approvato da Supercell (vedi la <a href="https://www.supercell.com/fan-content-policy" target="_blank" rel="noopener">Fan Content Policy</a>). Modelli 3D: KayKit (CC0). Motore
         <a href="https://github.com/RoyaleGym" target="_blank" rel="noopener">RoyaleGym/RoyaleSim</a> (MIT).
-        Grafica fatta solo di forme. <a href="https://github.com/topacciobil/solo-combo-col-gigante" target="_blank" rel="noopener">Codice</a></div>
+        <a href="https://github.com/topacciobil/solo-combo-col-gigante" target="_blank" rel="noopener">Codice</a></div>
     </div>
   </section>
 
@@ -49,6 +55,7 @@
     <div id="bot-hand" class="hidden"></div>
     <div id="stage">
       <canvas id="arena"></canvas>
+      <canvas id="arena3d" class="hidden"></canvas>
       <div id="banner" class="hidden"></div>
       <div id="toasts"></div>
     </div>
@@ -77,5 +84,6 @@
   </section>
 </div>
 <script src="game.js"></script>
+<script type="module" src="render3d.js"></script>
 </body>
 </html>

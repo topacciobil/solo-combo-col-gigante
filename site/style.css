@@ -101,3 +101,4 @@ kbd { background: #11141c; border: 1px solid #39405a; border-radius: 4px; paddin
 .footer { font-size: 11px; color: var(--muted); border-top: 1px solid #2c3347; padding-top: 10px; }
 .footer a { color: #9cc4ff; }
 #download-replay { font-size: 13px; }
+#arena3d { display: block; border-radius: 10px; box-shadow: 0 6px 24px #0009; touch-action: none; }

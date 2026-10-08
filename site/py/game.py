@@ -98,12 +98,16 @@ class Game:
         me, bot = s.players[0], s.players[1]
         return {
             "t": s.tick, "left": max(0, left) * s.tick_ms / 1000, "ot": bool(s.overtime), "rate": s.elixir_rate,
+            # 0 uid, 1 team, 2 kind, 3 card, 4 tower slot, 5 x, 6 y, 7 hp, 8 max hp, 9 radius, 10 flying,
+            # 11 deploy ticks, 12 stun ticks, 13 shield, 14 attack phase, 15 target uid, 16-17 facing x/y
             "e": [[e.uid, e.team, e.kind, e.card_id, e.tower_slot, _t(e.x, sub), _t(e.y, sub), e.hp, e.max_hp,
-                   _t(e.radius, sub), int(e.flying), e.deploy_ticks, e.stun_ticks, e.shield] for e in s.entities],
+                   _t(e.radius, sub), int(e.flying), e.deploy_ticks, e.stun_ticks, e.shield,
+                   e.attack_phase, e.target_uid, e.facing[0], e.facing[1]] for e in s.entities],
             "sp": [[p.team, p.card_id, p.motion, _t(p.x, sub), _t(p.y, sub), _t(p.aim_x, sub), _t(p.aim_y, sub),
                     p.travelled, p.length] for p in s.spells],
-            "pr": [[p.team, _t(p.x, sub), _t(p.y, sub), _t(p.aim_x, sub), _t(p.aim_y, sub), _t(p.splash, sub)]
-                   for p in s.projectiles],
+            # 0 team, 1-2 x/y, 3-4 aim, 5 splash, 6 firer card (-1 crown tower)
+            "pr": [[p.team, _t(p.x, sub), _t(p.y, sub), _t(p.aim_x, sub), _t(p.aim_y, sub), _t(p.splash, sub),
+                    p.firer_card_id] for p in s.projectiles],
             "crowns": [me.crowns, bot.crowns], "elixir": [me.elixir_milli / 1000, bot.elixir_milli / 1000],
             "hand": list(me.hand), "next": me.next_card, "kings": [me.king_active, bot.king_active],
             "bot_hand": list(bot.hand), "bot_next": bot.next_card,
