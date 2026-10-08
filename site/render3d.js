@@ -12,6 +12,8 @@ const KIND = { TROOP: 0, BUILDING: 1, KING: 2, PRINCESS: 3 };
 const TEAM = [new THREE.Color("#3d8bff"), new THREE.Color("#ff4d5e")];
 const ELEV = THREE.MathUtils.degToRad(52); // camera elevation above the ground plane
 const FLY_H = 1.8;
+const sfx = (n, gap) => window.SFX && window.SFX.play(n, gap);
+const ATTACK_SFX = { Musketeer: "shoot", Cannon: "cannon", IceSpirits: "ice", IceGolemite: "swing", Skeletons: "swing", HogRider: "swing" };
 
 // engine tiles (x right, y towards red) -> world (X right, Z towards the viewer, Y up)
 const wx = (x) => x - 9;
@@ -191,6 +193,52 @@ class Renderer3D {
     if (alongZ && size.x > size.z) o.position.set(center.z, -box.min.y * s, -center.x);
     wrap.add(o);
     return wrap;
+  }
+
+  // ------------------------------------------------------------------ card portraits
+  // Each card's own model, rendered once into a small image for the hand (no game art involved).
+  portraits(cardNames) {
+    const W = 160, H = 200;
+    const canvas = document.createElement("canvas");
+    const r = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
+    r.setSize(W, H, false);
+    r.outputColorSpace = THREE.SRGBColorSpace;
+    const out = {};
+    for (const name of cardNames) {
+      const scene = new THREE.Scene();
+      scene.add(new THREE.HemisphereLight("#fff6e0", "#506070", 2.0));
+      const sun = new THREE.DirectionalLight("#ffffff", 1.8); sun.position.set(2, 4, 5); scene.add(sun);
+      const holder = new THREE.Group();
+      const spec = MODELS[name];
+      if (spec) {
+        const ch = this.character(spec.file, 0);
+        this.fitHeight(ch.root, spec.h);
+        const clip = ch.actions[spec.clips.idle];
+        if (clip) { clip.play(); ch.mixer.update(0.3); }
+        if (spec.weapon) this.attachToBone(ch.root, "handslot.r", spec.weapon);
+        if (spec.rider) { const pig = makePig(0); pig.scale.setScalar(1.35); holder.add(pig); ch.root.position.y = 0.68; }
+        holder.add(ch.root);
+      } else if (name === "Fireball" || name === "Log") {
+        holder.add(makeSpell(name, 0));
+        if (name === "Log") holder.scale.setScalar(0.45);
+      } else {
+        const p = (PROCEDURAL[name] || PROCEDURAL.default)(0, 0.5);
+        p.root.scale.setScalar(1.3);
+        holder.add(p.root);
+      }
+      holder.rotation.y = 0.5;
+      scene.add(holder);
+      const box = new THREE.Box3().setFromObject(holder);
+      const size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
+      const cam = new THREE.PerspectiveCamera(30, W / H, 0.1, 100);
+      const dist = Math.max(size.y, size.x * H / W) / (2 * Math.tan(THREE.MathUtils.degToRad(15))) * 1.15;
+      cam.position.set(c.x, c.y + size.y * 0.15, c.z + dist);
+      cam.lookAt(c);
+      r.render(scene, cam);
+      out[name] = canvas.toDataURL("image/png");
+    }
+    r.dispose();
+    return out;
   }
 
   // ------------------------------------------------------------------ overlay (legal tiles, ghost)
@@ -490,6 +538,7 @@ class Renderer3D {
     if (e[E.DEPLOY] > 0) state = u.clips && u.clips.spawn ? "spawn" : "idle";
     else if (e[E.PHASE] > 0 && e[E.TARGET] >= 0) state = "attack";
     else if (moved > 0.004) state = "move";
+    if (state === "attack" && u.state !== "attack") sfx(ATTACK_SFX[u.card] || "swing", 60);
     if (u.state !== "spawn" || e[E.DEPLOY] <= 0) this.play(u, state);
     u.moving = state === "move";
     u.attacking = state === "attack";
@@ -515,6 +564,7 @@ class Renderer3D {
     u.bar.visible = false;
     this.dying.push(u);
     this.burst(u.holder.position, u.team === 0 ? "#9cc4ff" : "#ff98a2", 6, 0.6);
+    sfx(u.card === "IceSpirits" || u.card === "IceGolemite" ? "ice" : "pop", 50);
   }
 
   updateDying(dt, now) {
@@ -540,7 +590,10 @@ class Renderer3D {
     this.setHp(t.bar, e[E.HP] / e[E.MAXHP], t.team);
     t.bar.visible = true;
     const awake = !t.king || f.kings[t.team];
-    if (e[E.PHASE] > 0 && e[E.TARGET] >= 0) this.guardPlay(t, t.king ? "Throw" : "2H_Ranged_Shoot");
+    if (e[E.PHASE] > 0 && e[E.TARGET] >= 0) {
+      if (t.guard.state !== (t.king ? "Throw" : "2H_Ranged_Shoot")) sfx(t.king ? "cannon" : "arrow", 120);
+      this.guardPlay(t, t.king ? "Throw" : "2H_Ranged_Shoot");
+    }
     else this.guardPlay(t, awake ? (t.king ? "Idle" : "2H_Melee_Idle") : "Sit_Floor_Idle");
     const tgtId = e[E.TARGET];
     if (tgtId >= 0) {
@@ -558,6 +611,7 @@ class Renderer3D {
     t.holder.traverse((o) => { if (o.isMesh && o.material) { o.material = o.material.clone(); o.material.color.multiplyScalar(0.35); } });
     t.holder.scale.y = 0.35;
     this.camShake = 0.35;
+    sfx("crash", 200);
   }
 
   // ------------------------------------------------------------------ spells, projectiles, effects
@@ -571,6 +625,7 @@ class Renderer3D {
       let v = this.spells.get(key);
       if (!v) {
         v = { obj: makeSpell(card, team), card, team, ax, ay, startX: x, startY: y };
+        if (card === "Log") sfx("roll", 300);
         this.spells.set(key, v);
         this.scene.add(v.obj);
       }
@@ -636,6 +691,7 @@ class Renderer3D {
     this.fx.push({ obj: ball, born: performance.now(), life: 450, update: (k) => { ball.scale.setScalar(radius * 0.7 * (0.4 + k)); ball.material.opacity = 0.8 * (1 - k); } });
     this.burst(new THREE.Vector3(x, 0, z), color, 10, radius * 0.5);
     this.camShake = Math.max(this.camShake || 0, 0.12);
+    sfx(color === "#9fe8ff" ? "ice" : "boom", 100);
   }
 
   floatText(t, text) {
@@ -653,6 +709,7 @@ class Renderer3D {
   }
 
   playFx(p) {
+    sfx("place", 30);
     // a card landing: a ring of the player's colour
     const ring = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: TEAM[p.team], transparent: true, depthWrite: false }));
     ring.position.set(wx(p.x), 0.07, wz(p.y));

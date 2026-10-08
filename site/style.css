@@ -102,3 +102,6 @@ kbd { background: #11141c; border: 1px solid #39405a; border-radius: 4px; paddin
 .footer a { color: #9cc4ff; }
 #download-replay { font-size: 13px; }
 #arena3d { display: block; border-radius: 10px; box-shadow: 0 6px 24px #0009; touch-action: none; }
+.card .art { width: 100%; height: 70%; object-fit: contain; pointer-events: none; filter: drop-shadow(0 2px 2px #0008); }
+#elixir-bar.full #elixir-fill { animation: glow 0.8s infinite alternate; }
+@keyframes glow { to { filter: brightness(1.45) saturate(1.3); } }

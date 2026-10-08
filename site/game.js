@@ -16,12 +16,15 @@ const LOOK = {
   IceGolemite: { s: "IGo", i: "❄", c: "#5fb7d9" },
   IceSpirits: { s: "ISp", i: "✳", c: "#7fd6ff" },
   Skeletons: { s: "Ske", i: "☠", c: "#c9c9c9" },
-  Fireball: { s: "Fir", i: "☄", c: "#ff7a1a" },
+  Fireball: { s: "Fir", i: "☄", c: "#9e2a1c" },
   Log: { s: "Log", i: "▬", c: "#8a5a2b" },
 };
+// Names shown on the cards (the engine's names have no spaces).
+const DISPLAY = { HogRider: "Hog Rider", IceGolemite: "Ice Golem", IceSpirits: "Ice Spirit", Log: "The Log" };
 const SPELL_RADIUS = { Fireball: 2.5, Log: 1.95, Zap: 2.5, Arrows: 4, Snowball: 2.5 };
 
 let META = null;
+let PORTRAITS = {};
 let state = {
   frames: [],          // [{at, f}] received frames, newest last
   last: null,          // newest frame
@@ -65,6 +68,7 @@ async function init() {
   $("rematch").onclick = () => start(state.opponent, "");
   $("to-menu").onclick = () => { worker.postMessage({ type: "stop" }); state.inGame = false; show("menu"); };
   $("download-replay").onclick = downloadReplay;
+  if (window.SFX) { $("mute").checked = SFX.muted; $("mute").onchange = () => { SFX.muted = $("mute").checked; }; }
   connect();
   worker.postMessage({ type: "boot" });
   window.addEventListener("resize", resize);
@@ -177,7 +181,9 @@ async function boot3d() {
     const r = new window.Renderer3D();
     await r.init(c3, META, (k) => { $("load-fill").style.width = Math.round(90 + 10 * k) + "%"; });
     r3d = r;
+    window.__r3d = r; // for debugging and perf measurement
     canvas.classList.add("hidden");
+    try { PORTRAITS = r3d.portraits(Object.keys(LOOK)); } catch (e) { console.warn("ritratti non disponibili", e); }
     r3d.input = c3;
   } catch (e) {
     console.warn("3D non disponibile, uso il 2D:", e);
@@ -202,8 +208,9 @@ function onFrame(f) {
     }
   }
   if (prev) {
-    if (f.crowns[0] > prev.crowns[0]) banner("+1 ♛ per te!");
-    if (f.crowns[1] > prev.crowns[1]) banner("Il bot prende una corona");
+    if (f.crowns[0] > prev.crowns[0]) { banner("+1 ♛ per te!"); window.SFX && SFX.play("crown"); }
+    if (f.crowns[1] > prev.crowns[1]) { banner("Il bot prende una corona"); window.SFX && SFX.play("crown"); }
+    if (prev.left > 10 && f.left <= 10 && f.left > 0) window.SFX && SFX.play("tick");
     if (prev.left > 60 && f.left <= 60 && !f.ot) banner("60 secondi! Elisir x2");
     if (!prev.ot && f.ot) banner("OVERTIME!");
   }
@@ -240,8 +247,8 @@ function onEnd(d) {
   state.inGame = false;
   const t = $("end-title");
   t.className = "";
-  if (d.winner === 0) { t.textContent = "VITTORIA!"; t.classList.add("win"); }
-  else if (d.winner === 1) { t.textContent = "SCONFITTA"; t.classList.add("lose"); }
+  if (d.winner === 0) { t.textContent = "VITTORIA!"; t.classList.add("win"); window.SFX && SFX.play("win"); }
+  else if (d.winner === 1) { t.textContent = "SCONFITTA"; t.classList.add("lose"); window.SFX && SFX.play("lose"); }
   else { t.textContent = "PAREGGIO"; }
   $("end-crowns").innerHTML = `<span style="color:#9cc4ff">${d.crowns[0]}</span> – <span style="color:#ff98a2">${d.crowns[1]}</span>`;
   const secs = state.last ? Math.round((state.last.t - (clock ? clock.firstTick : 0)) * 0.05) : 0;
@@ -258,7 +265,8 @@ function cardInfo(id) { return META.cards[id] || { name: "?", elixir: 0 }; }
 function cardHtml(id, slot) {
   const c = cardInfo(id);
   const look = LOOK[c.name] || { s: c.name.slice(0, 3), i: c.name.slice(0, 2), c: "#555" };
-  return `<div class="cost"><b>${c.elixir}</b></div><div class="icon">${look.i}</div><div class="name">${look.s === "?" ? c.name : c.name}</div>` +
+  const art = PORTRAITS[c.name] ? `<img class="art" src="${PORTRAITS[c.name]}" alt="">` : `<div class="icon">${look.i}</div>`;
+  return `<div class="cost"><b>${c.elixir}</b></div>${art}<div class="name">${DISPLAY[c.name] || c.name}</div>` +
     (slot !== undefined ? `<div class="key">${slot + 1}</div>` : "");
 }
 
@@ -299,6 +307,7 @@ function updateHud(f) {
   $("crowns-red").textContent = f.crowns[1];
   $("elixir-fill").style.width = `${Math.min(10, f.elixir[0]) * 10}%`;
   $("elixir-num").textContent = Math.floor(f.elixir[0]);
+  $("elixir-bar").classList.toggle("full", f.elixir[0] >= 10);
   const key = f.hand.join(",") + "|" + f.next + "|" + Math.floor(f.elixir[0]) + "|" + (state.debug ? f.bot_hand.join(",") : "");
   if (key !== lastHandKey) { lastHandKey = key; renderHand(); }
 }
@@ -332,6 +341,7 @@ function select(slot) {
   const f = state.last;
   if (!f || !state.inGame) return;
   state.selected = state.selected === slot && !state.dragging ? -1 : slot;
+  if (window.SFX) { SFX.unlock(); if (state.selected >= 0) SFX.play("select"); }
   renderHand();
 }
 
