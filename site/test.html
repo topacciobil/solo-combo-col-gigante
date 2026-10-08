@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="it">
+<meta charset="utf-8">
+<title>Test motore (WebAssembly vs Python nativo)</title>
+<style>body{background:#14161f;color:#eef1f7;font:14px/1.5 monospace;padding:20px}.ok{color:#43d17a}.bad{color:#ff4d5e}</style>
+<h2>Test di equivalenza del motore</h2>
+<p>Gioca nel browser la stessa partita scriptata del riferimento in Python nativo e confronta l'hash dello stato dopo ogni decisione.</p>
+<pre id="out"></pre>
+<script src="https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.js"></script>
+<script>
+const out = document.getElementById("out");
+const log = (s, cls) => { const e = document.createElement("div"); if (cls) e.className = cls; e.textContent = s; out.appendChild(e); };
+(async () => {
+  const t0 = performance.now();
+  const py = await loadPyodide({ indexURL: "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/" });
+  await py.loadPackage(["micropip", "numpy", "msgspec"]);
+  const mp = py.pyimport("micropip");
+  await mp.install(["gymnasium", "pettingzoo", "cloudpickle", "farama-notifications", "typing-extensions"]);
+  const wheels = (await (await fetch("wheels/index.txt")).text()).split(/\s+/).filter((w) => w.endsWith(".whl"));
+  for (const w of wheels) await mp.install(new URL("wheels/" + w, location.href).href, { deps: false });
+  log(`caricato in ${Math.round(performance.now() - t0)} ms: ${wheels.join(", ")}`);
+  py.runPython(await (await fetch("py/game.py")).text());
+  py.runPython(await (await fetch("py/hash_test.py")).text().then((s) => s.replace('if __name__ == "__main__":', "if False:")));
+  const ref = await (await fetch("py/hash_ref.json")).json();
+  const t1 = performance.now();
+  const got = JSON.parse(py.runPython(`import json; json.dumps(run(Game, ${ref.seed}))`));
+  const ms = performance.now() - t1;
+  let first = -1;
+  for (let i = 0; i < Math.max(ref.hashes.length, got.hashes.length); i++) if (ref.hashes[i] !== got.hashes[i]) { first = i; break; }
+  log(`decisioni: nativo ${ref.decisions}, browser ${got.decisions}; ${Math.round(ms)} ms (${(ms / got.decisions).toFixed(1)} ms per decisione)`);
+  if (first < 0) log(`IDENTICO: ${got.hashes.length} hash su ${ref.hashes.length} coincidono. Ultimo ${got.hashes.at(-1)}`, "ok");
+  else log(`DIVERSO dalla decisione ${first}: nativo ${ref.hashes[first]}, browser ${got.hashes[first]}`, "bad");
+  document.title = first < 0 ? "TEST OK" : "TEST FALLITO";
+})().catch((e) => { log("ERRORE: " + e, "bad"); document.title = "TEST ERRORE"; });
+</script>
+</html>

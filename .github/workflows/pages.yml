@@ -44,16 +44,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      # Today's nightly emits wasm features (bulk-memory-opt, call-indirect-overlong...) that the
-      # wasm-opt of Emscripten 3.1.58 (Pyodide 0.27) rejects. Use the toolchain Pyodide pins for itself.
-      - name: Rust toolchain Pyodide ${{ env.PYODIDE_VERSION }} pins
+      # Today's nightly (LLVM 20+) emits wasm features (bulk-memory-opt, call-indirect-overlong...)
+      # that the wasm-opt of Emscripten 3.1.58 (Pyodide 0.27) rejects: use an LLVM 19 nightly, the
+      # one Pyodide 0.27 itself builds with.
+      - name: Rust toolchain for Pyodide ${{ env.PYODIDE_VERSION }}
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
-          # wheel 0.46 dropped wheel.cli, which this pyodide-build's auditwheel-emscripten imports.
-          python -m pip install "pyodide-build<0.30" "wheel<0.46"
-          pyodide xbuildenv install ${{ env.PYODIDE_VERSION }}
-          TC=$(pyodide config get rust_toolchain)
-          echo "Pyodide rust_toolchain: $TC"
+          TC=nightly-2025-01-18
           rustup toolchain install "$TC" --profile minimal
           rustup default "$TC"
           rustup target add wasm32-unknown-emscripten --toolchain "$TC"
