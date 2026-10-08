@@ -52,6 +52,18 @@ jobs:
           rustup target add wasm32-unknown-emscripten
           rustc --version
 
+      # The same data staging as RoyaleSim's own wheels.yml: the crate include_str!s these files.
+      - name: Generate and stage the engine data files
+        if: steps.cache.outputs.cache-hit != 'true'
+        working-directory: RoyaleSim
+        run: |
+          python -m pip install numpy msgspec
+          python tools/extract_arena.py
+          python tools/extract_cards.py --vintage 2018
+          cp data/derived/cards-15.535.json data/derived/cards.json
+          python tools/extract_globals.py
+          python tools/stage_wheel_data.py
+
       - name: Build the Pyodide wheel (cibuildwheel)
         if: steps.cache.outputs.cache-hit != 'true'
         working-directory: RoyaleSim
