@@ -105,3 +105,10 @@ kbd { background: #11141c; border: 1px solid #39405a; border-radius: 4px; paddin
 .card .art { width: 100%; height: 70%; object-fit: contain; pointer-events: none; filter: drop-shadow(0 2px 2px #0008); }
 #elixir-bar.full #elixir-fill { animation: glow 0.8s infinite alternate; }
 @keyframes glow { to { filter: brightness(1.45) saturate(1.3); } }
+.crown-row { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 6px 0; }
+.crown-row .who { width: 46px; font-size: 14px; color: var(--muted); text-align: right; }
+.crown { font-size: 44px; color: #3a3f52; text-shadow: 0 2px 0 #0008; transform: scale(.9); }
+.crown.on { animation: crownIn .45s cubic-bezier(.3,1.6,.6,1) forwards; }
+.crown-row.blue .crown.on { color: var(--gold); }
+.crown-row.red .crown.on { color: #ff9aa5; }
+@keyframes crownIn { 0% { transform: scale(1); } 40% { transform: scale(0.2) rotate(-30deg); } 100% { transform: scale(1.1); } }

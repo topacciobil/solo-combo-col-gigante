@@ -10,6 +10,8 @@ const E = { UID: 0, TEAM: 1, KIND: 2, CARD: 3, SLOT: 4, X: 5, Y: 6, HP: 7, MAXHP
   STUN: 12, SHIELD: 13, PHASE: 14, TARGET: 15, FX: 16, FY: 17 };
 const KIND = { TROOP: 0, BUILDING: 1, KING: 2, PRINCESS: 3 };
 const TEAM = [new THREE.Color("#3d8bff"), new THREE.Color("#ff4d5e")];
+const TEAM_BAR = [new THREE.Color("#4fa3ff"), new THREE.Color("#ff5a6a")];
+const HP_LOW = new THREE.Color("#ffb020"), HP_CRIT = new THREE.Color("#ff3030");
 const ELEV = THREE.MathUtils.degToRad(52); // camera elevation above the ground plane
 const FLY_H = 1.8;
 const sfx = (n, gap) => window.SFX && window.SFX.play(n, gap);
@@ -128,6 +130,7 @@ class Renderer3D {
     // River: rows between the water half rows, animated stripes.
     const [w0, w1] = m.water_half_rows;
     const yBot = w0 / 2, yTop = (w1 + 1) / 2;
+    this.water = { yBot, yTop, bridges: m.bridges_half_cols.map(([b0, b1]) => [b0 / 2, (b1 + 1) / 2]) };
     this.waterMat = new THREE.ShaderMaterial({
       uniforms: { t: { value: 0 } },
       vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }",
@@ -357,25 +360,48 @@ class Renderer3D {
     return m;
   }
 
-  hpBar(width) {
+  hpBar(width, label = false) {
+    // Both quads transparent with no depth test: three.js draws transparent objects after opaque ones, so a
+    // transparent background over an opaque fill would hide the fill. Same pass + renderOrder keeps it on top.
     const g = new THREE.Group();
-    const bg = new THREE.Mesh(new THREE.PlaneGeometry(width, 0.16), new THREE.MeshBasicMaterial({ color: "#111", depthTest: false, transparent: true, opacity: 0.8 }));
-    const fg = new THREE.Mesh(new THREE.PlaneGeometry(width - 0.04, 0.1), new THREE.MeshBasicMaterial({ color: "#fff", depthTest: false }));
-    fg.position.z = 0.001;
-    bg.renderOrder = 10; fg.renderOrder = 11;
-    g.add(bg, fg);
+    const h = label ? 0.3 : 0.2;
+    const mat = (color, opacity) => new THREE.MeshBasicMaterial({ color, depthTest: false, depthWrite: false, transparent: true, opacity });
+    const edge = new THREE.Mesh(new THREE.PlaneGeometry(width + 0.08, h + 0.08), mat("#000000", 0.85));
+    const bg = new THREE.Mesh(new THREE.PlaneGeometry(width, h), mat("#3a3a3a", 1));
+    const fg = new THREE.Mesh(new THREE.PlaneGeometry(width, h), mat("#ffffff", 1));
+    edge.renderOrder = 1000; bg.renderOrder = 1001; fg.renderOrder = 1002;
+    g.add(edge, bg, fg);
+    let text = null;
+    if (label) {
+      const c = document.createElement("canvas"); c.width = 128; c.height = 40;
+      text = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.5), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthTest: false, depthWrite: false }));
+      text.position.y = h / 2 + 0.3;
+      text.renderOrder = 1003;
+      text.userData = { canvas: c, value: null };
+      g.add(text);
+    }
     g.quaternion.copy(this.camera.quaternion);
-    g.userData = { fg, width };
+    g.userData = { fg, width, text };
     return g;
   }
 
-  setHp(bar, p, team) {
-    const { fg, width } = bar.userData;
-    const w = Math.max(0.001, p);
+  setHp(bar, p, team, hp) {
+    const { fg, width, text } = bar.userData;
+    const w = Math.max(0.001, Math.min(1, p));
     fg.scale.x = w;
-    fg.position.x = -(width - 0.04) * (1 - w) / 2;
-    fg.material.color.copy(TEAM[team]);
+    fg.position.x = -width * (1 - w) / 2;
+    // bright team colour; turns orange then red as it drops
+    fg.material.color.copy(w > 0.5 ? TEAM_BAR[team] : w > 0.25 ? HP_LOW : HP_CRIT);
+    if (text && hp !== undefined && text.userData.value !== hp) {
+      text.userData.value = hp;
+      const g = text.userData.canvas.getContext("2d");
+      g.clearRect(0, 0, 128, 40);
+      g.font = "bold 30px sans-serif"; g.textAlign = "center"; g.lineWidth = 6; g.strokeStyle = "#000";
+      g.strokeText(String(hp), 64, 31); g.fillStyle = "#fff"; g.fillText(String(hp), 64, 31);
+      text.material.map.needsUpdate = true;
+    }
   }
+
 
   makeUnit(e) {
     const card = this.meta.cards[e[E.CARD]] || { name: "?" };
@@ -390,9 +416,11 @@ class Renderer3D {
       this.fitHeight(ch.root, spec.h);
       unit.mixer = ch.mixer; unit.actions = ch.actions; unit.clips = spec.clips;
       if (spec.weapon) this.attachToBone(ch.root, "handslot.r", spec.weapon);
+      addOutline(ch.root, 0.035);
       if (spec.rider) {
         const pig = makePig(team);
         pig.scale.setScalar(1.35);
+        addOutline(pig, 0.025);
         unit.pig = pig;
         unit.body.add(pig);
         ch.root.position.set(0, 0.68, -0.07);
@@ -403,6 +431,7 @@ class Renderer3D {
       const proc = PROCEDURAL[card.name] || PROCEDURAL.default;
       const p = proc(team, radius, card);
       p.root.scale.setScalar(1.3);
+      addOutline(p.root, 0.03);
       unit.body.add(p.root);
       unit.proc = p;
     }
@@ -444,11 +473,12 @@ class Renderer3D {
     const top = box.max.y;
     const ch = this.character(king ? "king" : "archer", team);
     this.fitHeight(ch.root, king ? 1.25 : 1.05);
+    addOutline(ch.root, 0.035);
     ch.root.position.set(0, top - (king ? 0.35 : 0.15), 0.25);
     ch.root.rotation.y = team === 0 ? Math.PI : 0;
     t.holder.add(ch.root);
     t.guard = { mixer: ch.mixer, actions: ch.actions, root: ch.root, state: "" };
-    t.bar = this.hpBar(king ? 2.6 : 2.0);
+    t.bar = this.hpBar(king ? 2.6 : 2.0, true);
     t.bar.position.y = top + 1.6;
     t.holder.add(t.bar);
     t.holder.position.set(wx(e[E.X]), 0, wz(e[E.Y]));
@@ -544,7 +574,7 @@ class Renderer3D {
     u.attacking = state === "attack";
     // Deploying: drop in from above, translucent.
     const dep = e[E.DEPLOY] > 0;
-    u.body.position.y = (e[E.FLY] ? FLY_H : 0) + (dep ? Math.min(1.2, e[E.DEPLOY] * 0.06) : 0);
+    u.body.position.y = (e[E.FLY] ? FLY_H : 0) + (dep ? Math.min(1.2, e[E.DEPLOY] * 0.06) : 0) + this.riverJump(u, e);
     u.body.traverse((o) => { if (o.isMesh && o.material) { o.material.transparent = dep; o.material.opacity = dep ? 0.55 : 1; } });
     // Stun: freeze the animation.
     if (u.mixer) u.mixer.timeScale = e[E.STUN] > 0 ? 0 : 1;
@@ -555,6 +585,19 @@ class Renderer3D {
     u.body.traverse((o) => { if (o.isMesh && o.material && o.material.emissive) o.material.emissive.setScalar(u.flash > 0 ? 0.6 : 0); });
     u.bar.visible = e[E.HP] < e[E.MAXHP];
     if (u.bar.visible) this.setHp(u.bar, e[E.HP] / e[E.MAXHP], u.team);
+  }
+
+  // A ground unit the engine moves across the water away from the bridges is jumping the river (Hog Rider):
+  // an arc over the water band, highest mid-river.
+  riverJump(u, e) {
+    const w = this.water;
+    if (!w || e[E.FLY]) return 0;
+    const y = e[E.Y], x = e[E.X];
+    const margin = 0.6;
+    if (y < w.yBot - margin || y > w.yTop + margin) return 0;
+    if (w.bridges.some(([a, b]) => x >= a - 0.2 && x <= b + 0.2)) return 0;
+    const p = (y - (w.yBot - margin)) / (w.yTop - w.yBot + 2 * margin);
+    return Math.sin(Math.PI * Math.min(1, Math.max(0, p))) * 1.4;
   }
 
   kill(u, now) {
@@ -587,7 +630,7 @@ class Renderer3D {
     t.hp = e[E.HP];
     t.shake = Math.max(0, t.shake - dt);
     t.holder.position.x = wx(t.x) + (t.shake > 0 ? (Math.random() - 0.5) * 0.12 : 0);
-    this.setHp(t.bar, e[E.HP] / e[E.MAXHP], t.team);
+    this.setHp(t.bar, e[E.HP] / e[E.MAXHP], t.team, e[E.HP]);
     t.bar.visible = true;
     const awake = !t.king || f.kings[t.team];
     if (e[E.PHASE] > 0 && e[E.TARGET] >= 0) {
@@ -606,10 +649,25 @@ class Renderer3D {
     this.towers.delete(t.uid);
     this.burst(t.holder.position, "#bdb6a6", 26, 1.8);
     this.burst(t.holder.position, "#6b6457", 14, 1.4);
-    t.guard.root.visible = false;
     t.bar.visible = false;
-    t.holder.traverse((o) => { if (o.isMesh && o.material) { o.material = o.material.clone(); o.material.color.multiplyScalar(0.35); } });
-    t.holder.scale.y = 0.35;
+    // Replace the tower with a pile of rubble.
+    while (t.holder.children.length) t.holder.remove(t.holder.children[0]);
+    const r = mulberry32(t.uid * 97 + 3);
+    const stone = toon("#8f8a80"), dark = toon("#5f5b55");
+    const size = t.king ? 3.4 : 2.6;
+    for (let i = 0; i < 16; i++) {
+      const b = new THREE.Mesh(new THREE.DodecahedronGeometry(0.22 + r() * 0.3, 0), r() < 0.6 ? stone : dark);
+      b.position.set((r() - 0.5) * size, 0.1 + r() * 0.3, (r() - 0.5) * size);
+      b.rotation.set(r() * 3, r() * 3, r() * 3);
+      t.holder.add(b);
+    }
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(size * 0.55, size * 0.6, 0.25, 8), dark);
+    base.position.y = 0.12;
+    t.holder.add(base);
+    const smoke = new THREE.Mesh(new THREE.SphereGeometry(0.7, 10, 8), new THREE.MeshBasicMaterial({ color: "#777", transparent: true, opacity: 0.5, depthWrite: false }));
+    smoke.position.y = 1;
+    t.holder.add(smoke);
+    this.fx.push({ obj: smoke, born: performance.now(), life: 2500, update: (k) => { smoke.position.y = 1 + k * 2.5; smoke.scale.setScalar(1 + k * 2); smoke.material.opacity = 0.5 * (1 - k); } });
     this.camShake = 0.35;
     sfx("crash", 200);
   }
@@ -720,7 +778,7 @@ class Renderer3D {
   updateFx(dt, now) {
     this.fx = this.fx.filter((f) => {
       const k = (now - f.born) / f.life;
-      if (k >= 1) { this.scene.remove(f.obj); return false; }
+      if (k >= 1) { if (f.obj.parent) f.obj.parent.remove(f.obj); return false; }
       f.update(k, dt);
       return true;
     });
@@ -728,6 +786,38 @@ class Renderer3D {
       this.camShake = Math.max(0, this.camShake - dt);
       this.camera.position.x = (Math.random() - 0.5) * this.camShake * 0.6;
     } else this.camera.position.x = 0;
+  }
+}
+
+// ------------------------------------------------------------------ cartoon outline (inverted hull)
+// A copy of each mesh, pushed out along its normals and drawn back faces only, in black: only a rim shows.
+function outlineMaterial(thickness) {
+  const m = new THREE.MeshBasicMaterial({ color: "#1a1410", side: THREE.BackSide });
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader.replace("#include <begin_vertex>",
+      `#include <begin_vertex>
+      transformed += normalize(normal) * ${thickness.toFixed(4)};`);
+  };
+  m.userData.outline = true;
+  return m;
+}
+
+function addOutline(root, thickness) {
+  const meshes = [];
+  root.traverse((o) => { if (o.isMesh && !(o.material && o.material.userData && o.material.userData.outline)) meshes.push(o); });
+  const mat = outlineMaterial(thickness);
+  for (const o of meshes) {
+    let line;
+    if (o.isSkinnedMesh) {
+      line = new THREE.SkinnedMesh(o.geometry, mat);
+      line.bind(o.skeleton, o.bindMatrix);
+    } else {
+      line = new THREE.Mesh(o.geometry, mat);
+    }
+    line.position.copy(o.position); line.quaternion.copy(o.quaternion); line.scale.copy(o.scale);
+    line.frustumCulled = false;
+    line.renderOrder = -1;
+    o.parent.add(line);
   }
 }
 

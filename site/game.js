@@ -50,7 +50,7 @@ const RENDER_DELAY = 0; // frames are already scheduled at their own tick time
 // ------------------------------------------------------------------ setup
 
 // The engine runs in a Web Worker (Pyodide + RoyaleSim in WebAssembly + the bot in onnxruntime-web).
-const worker = new Worker("engine-worker.js");
+const worker = new Worker("engine-worker.js?v=202610082134");
 let clock = null;      // {t0, firstTick, tickMs}: when each tick is due on this page's clock
 const queue = [];      // events waiting for their tick to be shown: {due, kind, data}
 let replayBytes = null;
@@ -250,7 +250,9 @@ function onEnd(d) {
   if (d.winner === 0) { t.textContent = "VITTORIA!"; t.classList.add("win"); window.SFX && SFX.play("win"); }
   else if (d.winner === 1) { t.textContent = "SCONFITTA"; t.classList.add("lose"); window.SFX && SFX.play("lose"); }
   else { t.textContent = "PAREGGIO"; }
-  $("end-crowns").innerHTML = `<span style="color:#9cc4ff">${d.crowns[0]}</span> – <span style="color:#ff98a2">${d.crowns[1]}</span>`;
+  const row = (team, n, label) => `<div class="crown-row ${team}"><span class="who">${label}</span>` +
+    [0, 1, 2].map((i) => `<span class="crown${i < n ? " on" : ""}" style="animation-delay:${0.5 + i * 0.35}s">♛</span>`).join("") + "</div>";
+  $("end-crowns").innerHTML = row("red", d.crowns[1], "BOT") + row("blue", d.crowns[0], "TU");
   const secs = state.last ? Math.round((state.last.t - (clock ? clock.firstTick : 0)) * 0.05) : 0;
   $("end-detail").innerHTML = `Durata ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}
     &middot; carte giocate: tu ${state.plays[0]}, bot ${state.plays[1]}<br>
