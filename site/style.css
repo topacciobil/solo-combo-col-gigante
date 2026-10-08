@@ -112,3 +112,23 @@ kbd { background: #11141c; border: 1px solid #39405a; border-radius: 4px; paddin
 .crown-row.blue .crown.on { color: var(--gold); }
 .crown-row.red .crown.on { color: #ff9aa5; }
 @keyframes crownIn { 0% { transform: scale(1); } 40% { transform: scale(0.2) rotate(-30deg); } 100% { transform: scale(1.1); } }
+
+/* phones */
+html, body { overscroll-behavior: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+#game { height: 100dvh; overflow: hidden; padding: 4px 0; gap: 4px; }
+.card { touch-action: none; height: clamp(62px, 11.5vh, 92px); }
+#menu-error pre { white-space: pre-wrap; font-size: 11px; max-height: 160px; overflow: auto; background: #11141c; padding: 6px; border-radius: 6px; }
+@media (max-width: 480px) {
+  .panel { padding: 18px 16px; gap: 10px; }
+  h1 { font-size: 28px; }
+  .crowns { font-size: 15px; min-width: 70px; padding: 3px 8px; }
+  #timer { font-size: 22px; }
+  .card .name { font-size: 9px; }
+  .card .cost { width: 18px; height: 18px; }
+  .card .cost b { font-size: 11px; }
+  #next-box { width: 44px; }
+  #next .card { height: 50px; }
+  #elixir-drop { width: 28px; height: 28px; font-size: 14px; }
+}
+@media (max-width: 480px) { .toast { font-size: 11px; padding: 3px 8px; opacity: .85; } }

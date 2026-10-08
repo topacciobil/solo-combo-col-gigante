@@ -52,8 +52,8 @@ class Renderer3D {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color("#2f5a2a");
     this.camera = new THREE.OrthographicCamera(-10, 10, 18, -18, 0.1, 200);
-    this.camera.position.set(0, Math.sin(ELEV) * 60, Math.cos(ELEV) * 60 + 0.8);
-    this.camera.lookAt(0, 0, 0.8);
+    this.camera.position.set(0, Math.sin(ELEV) * 60, Math.cos(ELEV) * 60 + 0.2);
+    this.camera.lookAt(0, 0, 0.2);
     this.scene.add(new THREE.HemisphereLight("#fff6e0", "#3a5a30", 1.55));
     const sun = new THREE.DirectionalLight("#ffffff", 1.6);
     sun.position.set(-6, 14, 8);
@@ -82,7 +82,7 @@ class Renderer3D {
     const aspect = w / h;
     // Fit the arena (18 wide, 32 deep seen at ELEV) plus a margin for towers and the border.
     let halfW = 9.7, halfH = halfW / aspect;
-    const needH = (32 * Math.sin(ELEV)) / 2 + 1.6;
+    const needH = (32 * Math.sin(ELEV)) / 2 + 2.9; // + the king castle's height at the far end
     if (halfH < needH) { halfH = needH; halfW = halfH * aspect; }
     Object.assign(this.camera, { left: -halfW, right: halfW, top: halfH, bottom: -halfH });
     this.camera.updateProjectionMatrix();

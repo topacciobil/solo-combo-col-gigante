@@ -3,10 +3,20 @@
 // onnxruntime-web. Runs the battle in real time and posts frames to the page.
 
 const PYODIDE = "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/";
-const ORT = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/";
-importScripts(PYODIDE + "pyodide.js", ORT + "ort.wasm.min.js");
-ort.env.wasm.wasmPaths = ORT;
-ort.env.wasm.numThreads = 1;
+// onnxruntime-web 1.17.3, not 1.20: 1.20 ships only a SIMD build, which phones without WebAssembly SIMD
+// (e.g. iOS before 16.4) cannot load ("no available backend found"). 1.17.3 also ships the plain
+// ort-wasm.wasm and picks the SIMD one by itself where it is supported.
+const ORT = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.3/dist/";
+importScripts(PYODIDE + "pyodide.js");
+let ortLoaded = false;
+function loadOrt() {
+  if (ortLoaded) return;
+  importScripts(ORT + "ort.wasm.min.js");
+  ort.env.wasm.wasmPaths = ORT;
+  ort.env.wasm.numThreads = 1;  // no SharedArrayBuffer on GitHub Pages
+  ort.env.wasm.proxy = false;
+  ortLoaded = true;
+}
 
 let py = null, game = null, session = null, inputsMeta = null;
 let running = false, pending = 0, seq = 0;
@@ -33,7 +43,13 @@ async function boot() {
 
 async function loadBot(name) {
   progress("Carico il bot...", 90);
-  session = await ort.InferenceSession.create("bots/" + name + ".onnx", { executionProviders: ["wasm"] });
+  loadOrt();
+  try {
+    session = await ort.InferenceSession.create("bots/" + name + ".onnx", { executionProviders: ["wasm"] });
+  } catch (e) {
+    throw new Error("Il bot non si avvia su questo dispositivo (onnxruntime: " + (e && e.message || e) +
+      "). Puoi giocare contro i bot 'Script'.");
+  }
   inputsMeta = await (await fetch("bots/" + name + ".json")).json();
 }
 
@@ -103,6 +119,7 @@ onmessage = async (ev) => {
     else if (m.type === "action") pending = m.action;
     else if (m.type === "stop") { running = false; seq++; }
   } catch (e) {
-    say("error", { message: String(e && e.message || e) });
+    say("error", { message: String(e && e.message || e), stack: String(e && e.stack || "").slice(0, 800),
+                   where: m.type, ua: navigator.userAgent });
   }
 };

@@ -50,7 +50,7 @@ const RENDER_DELAY = 0; // frames are already scheduled at their own tick time
 // ------------------------------------------------------------------ setup
 
 // The engine runs in a Web Worker (Pyodide + RoyaleSim in WebAssembly + the bot in onnxruntime-web).
-const worker = new Worker("engine-worker.js?v=202610082134");
+const worker = new Worker("engine-worker.js?v=202610082223");
 let clock = null;      // {t0, firstTick, tickMs}: when each tick is due on this page's clock
 const queue = [];      // events waiting for their tick to be shown: {due, kind, data}
 let replayBytes = null;
@@ -134,10 +134,34 @@ function connect() {
       const lastDue = queue.length ? queue[queue.length - 1].due : performance.now();
       queue.push({ due: lastDue + 1, kind: "end", data: m });
     } else if (m.type === "error") {
-      $("menu-error").textContent = "Errore: " + m.message;
-      toast("Errore: " + m.message, true);
+      showError(m.message, [m.where && "fase: " + m.where, m.ua, m.stack].filter(Boolean).join("\n"));
     }
   };
+  worker.onerror = (ev) => {
+    showError("Il motore non si e' avviato: " + (ev.message || "errore sconosciuto"),
+      [ev.filename, ev.lineno, navigator.userAgent].filter(Boolean).join("\n"));
+  };
+}
+
+// An error goes back to the menu with the whole message (and the details, to send if it repeats).
+function showError(message, details) {
+  state.inGame = false;
+  worker.postMessage({ type: "stop" });
+  show("menu");
+  $("loading").classList.add("hidden");
+  $("play").disabled = false;
+  const box = $("menu-error");
+  box.innerHTML = "";
+  const p = document.createElement("div");
+  p.textContent = "Errore: " + message;
+  box.appendChild(p);
+  if (details) {
+    const d = document.createElement("details");
+    const sm = document.createElement("summary"); sm.textContent = "Dettagli tecnici";
+    const pre = document.createElement("pre"); pre.textContent = details;
+    d.append(sm, pre);
+    box.appendChild(d);
+  }
 }
 
 // Show queued events whose tick has come.
@@ -152,21 +176,27 @@ function pump() {
 }
 
 function resize() {
-  const availH = window.innerHeight - 250;
-  const availW = Math.min(window.innerWidth - 16, 560);
-  T = Math.max(10, Math.floor(Math.min(availH / 32, availW / 18)));
+  // Fit the arena in the space the bars and the hand leave, measured (phones differ a lot).
+  const h = (id, d) => ($(id) && $(id).offsetHeight) || d;
+  const botHand = state.debug ? h("bot-hand", 44) : 0;
+  const availH = window.innerHeight - h("topbar", 44) - h("hud", 96) - h("elixir-wrap", 34) - botHand - 34;
+  const availW = Math.min(window.innerWidth - 12, 560);
+  // The 2.5D view sees the 32 rows tilted: about 26.4 tiles of height are enough (no empty band).
+  const rows = r3d && r3d.ready ? R3D_ROWS : 32;
+  T = Math.max(10, Math.floor(Math.min(availH / rows, availW / 18) * 10) / 10);
   const dpr = window.devicePixelRatio || 1;
   canvas.width = 18 * T * dpr; canvas.height = 32 * T * dpr;
   canvas.style.width = 18 * T + "px"; canvas.style.height = 32 * T + "px";
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   document.documentElement.style.setProperty("--arena-w", 18 * T + "px");
   const c3 = $("arena3d");
-  c3.style.width = 18 * T + "px"; c3.style.height = 32 * T + "px";
+  c3.style.width = 18 * T + "px"; c3.style.height = Math.round(R3D_ROWS * T) + "px";
   if (r3d && r3d.ready) r3d.resize();
 }
 
 // ------------------------------------------------------------------ 2.5D renderer (render3d.js)
 let r3d = null;
+const R3D_ROWS = 29.0;
 async function boot3d() {
   if (!window.Renderer3D) await new Promise((res) => {
     window.addEventListener("renderer3d-loaded", res, { once: true });
@@ -177,12 +207,13 @@ async function boot3d() {
     $("load-text").textContent = "Carico i modelli 3D...";
     const c3 = $("arena3d");
     c3.classList.remove("hidden");
-    c3.style.width = 18 * T + "px"; c3.style.height = 32 * T + "px";
+    c3.style.width = 18 * T + "px"; c3.style.height = Math.round(R3D_ROWS * T) + "px";
     const r = new window.Renderer3D();
     await r.init(c3, META, (k) => { $("load-fill").style.width = Math.round(90 + 10 * k) + "%"; });
     r3d = r;
     window.__r3d = r; // for debugging and perf measurement
     canvas.classList.add("hidden");
+    resize();
     try { PORTRAITS = r3d.portraits(Object.keys(LOOK)); } catch (e) { console.warn("ritratti non disponibili", e); }
     r3d.input = c3;
   } catch (e) {
