@@ -1,0 +1,26 @@
+{
+ "inputs": {
+  "spatial": [
+   1,
+   20,
+   32,
+   18
+  ],
+  "mask_planes": [
+   1,
+   4,
+   32,
+   18
+  ],
+  "vector": [
+   1,
+   1675
+  ]
+ },
+ "dtypes": {
+  "spatial": "float32",
+  "mask_planes": "float32",
+  "vector": "float32"
+ },
+ "source": "runs/rltest_generalist/checkpoints/000002236992"
+}

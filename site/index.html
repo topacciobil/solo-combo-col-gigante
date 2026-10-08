@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Royale Arena 1v1</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <!-- MENU -->
+  <section id="menu" class="screen">
+    <div class="panel">
+      <h1>Royale Arena <span>1v1</span></h1>
+      <p class="sub">Tu (blu) contro un bot allenato con il machine learning: prima ha copiato migliaia di
+        partite umane, poi si e' migliorato giocando da solo. Il motore di battaglia gira interamente nel tuo browser.</p>
+      <div id="loading">
+        <div id="load-text">Avvio...</div>
+        <div id="load-bar"><div id="load-fill"></div></div>
+        <small>Il primo caricamento scarica ~20 MB (Python + motore), poi resta in cache.</small>
+      </div>
+      <label>Avversario
+        <select id="opponent"></select>
+      </label>
+      <label>Seed <small>(vuoto = casuale)</small>
+        <input id="seed" type="number" min="0" placeholder="casuale">
+      </label>
+      <label class="check"><input id="debug" type="checkbox"> Debug: mostra la mano del bot</label>
+      <button id="play" class="big">Gioca</button>
+      <div class="help">
+        <b>Comandi</b>: clicca una carta (o tasti <kbd>1</kbd>-<kbd>4</kbd>) e poi l'arena, oppure trascinala.
+        Le caselle verdi sono quelle valide. <kbd>Esc</kbd> o clic destro annulla.<br>
+        Mazzo per entrambi: Hog 2.6. Una giocata entra nella decisione successiva del motore (ogni 0,5 s).
+      </div>
+      <div id="menu-error" class="error"></div>
+      <div class="footer">Progetto amatoriale, non affiliato a Supercell. Motore
+        <a href="https://github.com/RoyaleGym" target="_blank" rel="noopener">RoyaleGym/RoyaleSim</a> (MIT).
+        Grafica fatta solo di forme. <a href="https://github.com/topacciobil/solo-combo-col-gigante" target="_blank" rel="noopener">Codice</a></div>
+    </div>
+  </section>
+
+  <!-- GAME -->
+  <section id="game" class="screen hidden">
+    <div id="topbar">
+      <div class="crowns red"><span id="crowns-red">0</span> <i>&#9819;</i> BOT</div>
+      <div id="timer-box"><div id="timer">3:00</div><div id="rate"></div></div>
+      <div class="crowns blue">TU <i>&#9819;</i> <span id="crowns-blue">0</span></div>
+    </div>
+    <div id="bot-hand" class="hidden"></div>
+    <div id="stage">
+      <canvas id="arena"></canvas>
+      <div id="banner" class="hidden"></div>
+      <div id="toasts"></div>
+    </div>
+    <div id="hud">
+      <div id="hand"></div>
+      <div id="next-box"><small>prossima</small><div id="next"></div></div>
+    </div>
+    <div id="elixir-wrap">
+      <div id="elixir-drop"><b id="elixir-num">0</b></div>
+      <div id="elixir-bar"><div id="elixir-fill"></div><div id="elixir-ticks"></div></div>
+    </div>
+  </section>
+
+  <!-- END -->
+  <section id="end" class="screen hidden">
+    <div class="panel">
+      <h1 id="end-title">VITTORIA</h1>
+      <div id="end-crowns"></div>
+      <div id="end-detail"></div>
+      <button id="download-replay">Scarica il replay (.msgpack)</button>
+      <div class="row">
+        <button id="rematch" class="big">Rivincita</button>
+        <button id="to-menu">Menu</button>
+      </div>
+    </div>
+  </section>
+</div>
+<script src="game.js"></script>
+</body>
+</html>

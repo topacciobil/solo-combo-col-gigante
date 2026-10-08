@@ -1,0 +1,101 @@
+name: build engine + deploy site
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+env:
+  # The engine the bots were trained on: royalesim 0.1.22 (RoyaleSim commit f042db0).
+  ROYALESIM_REF: f042db0797dd869d2fb15ad805afc1b25aec7610
+  PYODIDE_VERSION: "0.27.7"
+
+jobs:
+  engine:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cache the built engine wheel
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: wheelhouse
+          key: royalesim-${{ env.ROYALESIM_REF }}-pyodide-${{ env.PYODIDE_VERSION }}-v1
+
+      - name: Checkout RoyaleSim
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: RoyaleGym/RoyaleSim
+          ref: ${{ env.ROYALESIM_REF }}
+          path: RoyaleSim
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          python-version: "3.12"
+
+      - name: Rust target for Emscripten
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          rustup toolchain install nightly --profile minimal
+          rustup default nightly
+          rustup target add wasm32-unknown-emscripten
+          rustc --version
+
+      - name: Build the Pyodide wheel (cibuildwheel)
+        if: steps.cache.outputs.cache-hit != 'true'
+        working-directory: RoyaleSim
+        env:
+          CIBW_PLATFORM: pyodide
+          CIBW_BUILD: cp312-pyodide_wasm32
+          CIBW_PYODIDE_VERSION: ${{ env.PYODIDE_VERSION }}
+          CIBW_TEST_SKIP: "*"
+          # A wheel runs only its compiled-in card table (the crate's own note on checkout-data).
+          CIBW_ENVIRONMENT: MATURIN_PEP517_ARGS="--no-default-features"
+        run: |
+          pip install "cibuildwheel>=2.23,<4"
+          cibuildwheel --output-dir ../wheelhouse
+          ls -la ../wheelhouse
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: engine-wheel
+          path: wheelhouse/*.whl
+
+  site:
+    needs: engine
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: engine-wheel
+          path: site/wheels
+      - name: Index the wheels the worker installs
+        run: |
+          cd site/wheels && ls *.whl > index.txt && cat index.txt
+          cd .. && ls -laR | head -60
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: site
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

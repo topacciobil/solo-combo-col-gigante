@@ -1,0 +1,8 @@
+[
+  {"id": "rl_generalist_3M", "label": "Bot RL (il piu' forte): clone + 3M step di self-play"},
+  {"id": "clone_generalist", "label": "Bot clone: copia di 1000 partite umane"},
+  {"id": "script:patient", "label": "Script: patient (aspetta e spinge)"},
+  {"id": "script:push", "label": "Script: push (gioca tutto in avanti)"},
+  {"id": "script:defend", "label": "Script: defend (solo difesa)"},
+  {"id": "script:random", "label": "Script: random (facile)"}
+]
