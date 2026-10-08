@@ -49,7 +49,8 @@ jobs:
       - name: Rust toolchain Pyodide ${{ env.PYODIDE_VERSION }} pins
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
-          python -m pip install "pyodide-build<0.30"
+          # wheel 0.46 dropped wheel.cli, which this pyodide-build's auditwheel-emscripten imports.
+          python -m pip install "pyodide-build<0.30" "wheel<0.46"
           pyodide xbuildenv install ${{ env.PYODIDE_VERSION }}
           TC=$(pyodide config get rust_toolchain)
           echo "Pyodide rust_toolchain: $TC"
